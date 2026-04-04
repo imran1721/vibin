@@ -37,7 +37,6 @@ export type QueueListHandle = {
 
 type Props = {
   items: QueueItem[];
-  isHost: boolean;
   onRemove: (id: string) => void;
   nowPlayingId: string | null;
   /** Tap a row to jump the room to this track (host + guests). */
@@ -260,7 +259,6 @@ export function NowPlayingQueueRow({
 export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
   {
     items,
-    isHost,
     onRemove,
     nowPlayingId,
     onPlayItem,
@@ -425,15 +423,15 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
   }
 
   return (
-    <div className="min-h-0 max-h-[min(46svh,22rem)]">
+    <div className="min-h-0 w-full min-w-0 max-h-[min(52svh,24rem)] sm:max-h-[min(46svh,22rem)]">
       <div
         ref={scrollRef}
-        className="max-h-[min(46svh,22rem)] min-h-0 overflow-y-auto overscroll-y-contain [scrollbar-gutter:stable]"
+        className="max-h-[min(52svh,24rem)] min-h-0 min-w-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain sm:max-h-[min(46svh,22rem)]"
         role="region"
         aria-label="Playback queue"
       >
         <ul
-          className={`flex flex-col gap-2 pr-0.5 ${playBusy ? "pointer-events-none opacity-55" : ""}`}
+          className={`flex flex-col gap-2 pb-2 pr-1 ${playBusy ? "pointer-events-none opacity-55" : ""}`}
         >
           {items.map((item, index) => {
             const isNow = item.id === nowPlayingId;
@@ -501,16 +499,14 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
                         </p>
                       </div>
                 </button>
-                {isHost && (
-                  <button
-                    type="button"
-                    disabled={playBusy}
-                    onClick={() => onRemove(item.id)}
-                    className="border-border text-muted-foreground hover:text-destructive focus-visible:ring-ring inline-flex min-h-12 shrink-0 items-center justify-center border-l px-2.5 text-xs font-semibold underline-offset-4 transition-colors hover:underline focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3.5"
-                  >
-                    Remove
-                  </button>
-                )}
+                    <button
+                      type="button"
+                      disabled={playBusy}
+                      onClick={() => onRemove(item.id)}
+                      className="border-border text-muted-foreground hover:text-destructive focus-visible:ring-ring inline-flex min-h-12 shrink-0 items-center justify-center border-l px-2.5 text-xs font-semibold underline-offset-4 transition-colors hover:underline focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3.5"
+                    >
+                      Remove
+                    </button>
               </li>
             );
           })}

@@ -58,10 +58,51 @@ function CollapseChevron({ open }: { open: boolean }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={`text-muted-foreground size-5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+      className={`text-muted-foreground size-5 shrink-0 transition-transform duration-300 ease-out motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
     >
       <path d="m6 9 6 6 6-6" />
     </svg>
+  );
+}
+
+const collapsibleEase =
+  "transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none motion-reduce:duration-0";
+
+type CollapsiblePanelProps = {
+  id: string;
+  open: boolean;
+  labelledBy: string;
+  /** Applied only while open so collapsed state doesn’t reserve vertical gap. */
+  marginClassWhenOpen: string;
+  innerClassName: string;
+  children: React.ReactNode;
+};
+
+function CollapsiblePanel({
+  id,
+  open,
+  labelledBy,
+  marginClassWhenOpen,
+  innerClassName,
+  children,
+}: CollapsiblePanelProps) {
+  return (
+    <div
+      id={id}
+      role="region"
+      aria-labelledby={labelledBy}
+      aria-hidden={!open}
+      className={`grid min-w-0 w-full overflow-hidden ${collapsibleEase} ${open ? marginClassWhenOpen : ""} ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+    >
+      <div className="min-h-0 min-w-0">
+        <div
+          className={`min-w-0 max-w-full ${innerClassName}`}
+          inert={!open}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -287,6 +328,11 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const nowPlayingId = effectiveNowId;
   const hasNowPlaying = !!nowPlaying;
 
+  const queuedVideoIds = useMemo(
+    () => new Set(queue.map((q) => q.video_id)),
+    [queue]
+  );
+
   const currentQueueIndex = useMemo(() => {
     if (!effectiveNowId) return -1;
     return queue.findIndex((q) => q.id === effectiveNowId);
@@ -446,6 +492,10 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const shellMainClass =
     "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
 
+  /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below. */
+  const shellMainScrollClass =
+    "vibin-page-bg relative flex w-full flex-col pb-[max(1.25rem,env(safe-area-inset-bottom))]";
+
   if (configError) {
     return (
       <main className={`${shellMainClass} gap-5`}>
@@ -510,9 +560,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
       (queueSectionOpen && !nowPlayingVisibleInQueueScroll));
 
   return (
-    <main className={shellMainClass}>
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 xl:max-w-3xl">
-        <header className="border-border/50 flex items-center justify-between gap-3 border-b pb-3 sm:gap-4">
+    <main className={shellMainScrollClass}>
+      <header className="border-border/50 bg-background/90 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 w-full border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4 xl:max-w-3xl">
           <div className="flex min-w-0 flex-1 items-center pr-2">
             {isHost ? (
               <>
@@ -563,31 +613,37 @@ export function RoomClient({ roomId, hostToken }: Props) {
               Home
             </Link>
           </div>
-        </header>
+        </div>
+      </header>
 
-        <section aria-labelledby="search-heading" className="flex flex-col gap-1">
-          <h2 id="search-heading" className="sr-only">
-            Search YouTube
-          </h2>
-          <SearchYouTube onAdd={handleAdd} />
-        </section>
-
-        {isHost && (
-          <section className="flex flex-col gap-2" aria-label="Playback">
-            <YouTubeHostPlayer
-              videoId={nowPlaying?.video_id ?? null}
-              onEnded={advanceToNextTrack}
-              remotePaused={playbackPaused}
+      <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
+        <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
+          <section aria-labelledby="search-heading" className="flex flex-col gap-1">
+            <h2 id="search-heading" className="sr-only">
+              Search YouTube
+            </h2>
+            <SearchYouTube
+              onAdd={handleAdd}
+              queuedVideoIds={queuedVideoIds}
             />
-            <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
-              Playback runs on this device. Keep the tab open for the party.
-            </p>
           </section>
-        )}
 
-        <section
+          {isHost && (
+            <section className="flex flex-col gap-2" aria-label="Playback">
+              <YouTubeHostPlayer
+                videoId={nowPlaying?.video_id ?? null}
+                onEnded={advanceToNextTrack}
+                remotePaused={playbackPaused}
+              />
+              <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
+                Playback runs on this device. Keep the tab open for the party.
+              </p>
+            </section>
+          )}
+
+          <section
           ref={queueSectionRef}
-          className="border-border border-t pt-3"
+          className="border-border min-w-0 border-t pt-3"
           aria-labelledby="queue-section-title"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
@@ -622,7 +678,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
           </div>
           {!queueSectionOpen && nowPlaying ? (
             <div
-              className="mt-3"
+              className="vibin-collapsible-strip-in mt-3"
               role="region"
               aria-label="Now playing"
             >
@@ -632,20 +688,17 @@ export function RoomClient({ roomId, hostToken }: Props) {
               />
             </div>
           ) : null}
-          <div
+          <CollapsiblePanel
             id="queue-panel"
-            role="region"
-            aria-labelledby="queue-section-title"
-            hidden={!queueSectionOpen}
-            className={
-              queueSectionOpen ? "mt-3 flex flex-col gap-3" : "hidden"
-            }
+            open={queueSectionOpen}
+            labelledBy="queue-section-title"
+            marginClassWhenOpen="mt-3"
+            innerClassName="flex flex-col gap-3"
           >
             <QueueList
               ref={queueListRef}
               listPanelOpen={queueSectionOpen}
               items={queue}
-              isHost={isHost}
               onRemove={handleRemove}
               nowPlayingId={nowPlayingId}
               onPlayItem={(id) => void handlePlayQueueItem(id)}
@@ -655,11 +708,11 @@ export function RoomClient({ roomId, hostToken }: Props) {
                 onNowPlayingVisibleInQueueChange
               }
             />
-          </div>
-        </section>
+          </CollapsiblePanel>
+          </section>
 
-        <section
-          className="border-border border-t pt-3"
+          <section
+          className="border-border min-w-0 border-t pt-3"
           aria-labelledby="yt-pl-section-title"
         >
           <button
@@ -675,16 +728,14 @@ export function RoomClient({ roomId, hostToken }: Props) {
               YouTube playlists
             </span>
           </button>
-          <div
+          <CollapsiblePanel
             id="yt-pl-panel"
-            role="region"
-            aria-labelledby="yt-pl-section-title"
-            hidden={!playlistSectionOpen}
-            className={
-              playlistSectionOpen ? "mt-[2px] flex flex-col gap-2.5" : "hidden"
-            }
+            open={playlistSectionOpen}
+            labelledBy="yt-pl-section-title"
+            marginClassWhenOpen="mt-[2px]"
+            innerClassName="flex flex-col gap-2.5"
           >
-            <p className="text-muted-foreground max-w-prose text-[0.7rem] leading-snug sm:text-xs">
+            <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
               Connect your Google account to list your playlists. Add tracks,
               add an entire playlist, or replace the queue.
             </p>
@@ -698,16 +749,17 @@ export function RoomClient({ roomId, hostToken }: Props) {
               <HostYoutubePlaylists
                 roomId={roomId}
                 omitSectionChrome
+                queuedVideoIds={queuedVideoIds}
                 onImported={() => {
                   void loadQueue();
                   void refreshPlaybackState();
                 }}
               />
             </Suspense>
-          </div>
-        </section>
+          </CollapsiblePanel>
+          </section>
 
-        {isHost ? (
+          {isHost ? (
           <>
             <ConfirmDialog
               open={clearConfirmOpen}
@@ -725,7 +777,8 @@ export function RoomClient({ roomId, hostToken }: Props) {
               url={guestInviteUrl}
             />
           </>
-        ) : null}
+          ) : null}
+        </div>
       </div>
 
       {showGoToNowPlayingFab ? (

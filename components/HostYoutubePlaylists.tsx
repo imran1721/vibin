@@ -10,18 +10,27 @@ type Props = {
   onImported?: () => void;
   /** Hide title + description; use when a parent provides the section heading (e.g. collapsible). */
   omitSectionChrome?: boolean;
+  /** YouTube `videoId`s already in the room queue — per-track button shows “Added”. */
+  queuedVideoIds?: ReadonlySet<string>;
 };
 
 type Playlist = { id: string; title: string; itemCount?: number };
 type PlItem = { videoId: string; title: string; thumbUrl: string };
 
 const panelClass =
-  "border-border bg-card rounded-xl border p-3 shadow-sm sm:p-4";
+  "border-border bg-card min-w-0 w-full max-w-full rounded-xl border p-3 shadow-sm sm:p-4";
+
+const plAddBtnClass =
+  "bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-9 min-w-[3.75rem] shrink-0 items-center justify-center rounded-lg px-2.5 text-[0.65rem] font-bold transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 sm:min-w-[4.25rem] sm:px-3 sm:text-xs";
+
+const plAddedBtnClass =
+  "border-border bg-muted/55 text-muted-foreground inline-flex min-h-9 min-w-[3.75rem] shrink-0 cursor-default items-center justify-center rounded-lg border px-2.5 text-[0.65rem] font-semibold sm:min-h-10 sm:min-w-[4.25rem] sm:px-3 sm:text-xs";
 
 export function HostYoutubePlaylists({
   roomId,
   onImported,
   omitSectionChrome = false,
+  queuedVideoIds,
 }: Props) {
   const searchParams = useSearchParams();
   const [connected, setConnected] = useState(false);
@@ -264,11 +273,11 @@ export function HostYoutubePlaylists({
 
       {!plLoading && connected && playlists.length > 0 && (
         <div
-          className="mt-3 min-h-0 max-h-[min(40svh,20rem)] overflow-y-auto overscroll-y-contain rounded-lg [scrollbar-gutter:stable]"
+          className="mt-3 min-h-0 min-w-0 w-full max-h-[min(48svh,22rem)] overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg sm:max-h-[min(40svh,20rem)]"
           role="region"
           aria-label="Scrollable playlist list"
         >
-        <ul className="flex flex-col gap-1.5 pr-0.5">
+        <ul className="flex min-w-0 w-full flex-col gap-1.5 pb-2 pr-1">
           {playlists.map((pl) => {
             const open = expandedId === pl.id;
             const items = itemsByPlaylist[pl.id];
@@ -276,7 +285,7 @@ export function HostYoutubePlaylists({
             return (
               <li
                 key={pl.id}
-                className="border-border overflow-hidden rounded-xl border"
+                className="border-border min-w-0 overflow-hidden rounded-xl border"
               >
                 <button
                   type="button"
@@ -323,16 +332,18 @@ export function HostYoutubePlaylists({
                           </button>
                         </div>
                         <ul
-                          className="border-border max-h-[min(36svh,16rem)] overflow-y-auto overscroll-y-contain rounded-lg border text-sm [scrollbar-gutter:stable]"
+                          className="border-border max-h-[min(42svh,18rem)] min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg border text-sm sm:max-h-[min(36svh,16rem)]"
                           aria-label="Tracks in this playlist"
                         >
                           {items.map((it) => {
                             const rowBusy =
                               singleAddBusyId === it.videoId || importBusy;
+                            const inQueue =
+                              queuedVideoIds?.has(it.videoId) ?? false;
                             return (
                               <li
                                 key={it.videoId}
-                                className="border-border flex items-center gap-2 border-b py-2 pl-2 pr-1.5 last:border-b-0 sm:gap-2.5 sm:py-2.5 sm:pl-2.5 sm:pr-2"
+                                className="border-border flex min-w-0 items-center gap-2 border-b py-2 pl-2 pr-1.5 last:border-b-0 sm:gap-2.5 sm:py-2.5 sm:pl-2.5 sm:pr-2"
                               >
                                 {it.thumbUrl ? (
                                   // eslint-disable-next-line @next/next/no-img-element
@@ -346,18 +357,25 @@ export function HostYoutubePlaylists({
                                 ) : (
                                   <div className="bg-muted h-10 w-[4.5rem] shrink-0 rounded-md sm:h-11 sm:w-20" />
                                 )}
-                                <p className="text-foreground min-w-0 flex-1 text-xs font-medium leading-snug sm:text-sm">
+                                <p className="text-foreground min-w-0 flex-1 break-words text-xs font-medium leading-snug sm:text-sm">
                                   {it.title}
                                 </p>
                                 <button
                                   type="button"
-                                  disabled={rowBusy}
+                                  disabled={rowBusy || inQueue}
                                   onClick={() => void addSingleToQueue(it)}
-                                  className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-9 min-w-[3.75rem] shrink-0 items-center justify-center rounded-lg px-2.5 text-[0.65rem] font-bold transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10 sm:min-w-[4.25rem] sm:px-3 sm:text-xs"
+                                  aria-label={
+                                    inQueue ? "Already in queue" : "Add to queue"
+                                  }
+                                  className={
+                                    inQueue ? plAddedBtnClass : plAddBtnClass
+                                  }
                                 >
                                   {singleAddBusyId === it.videoId
                                     ? "…"
-                                    : "Add"}
+                                    : inQueue
+                                      ? "Added"
+                                      : "Add"}
                                 </button>
                               </li>
                             );
