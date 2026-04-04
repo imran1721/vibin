@@ -1,5 +1,6 @@
 # Jam
 
+
 Web app for a Spotify Jam–style YouTube listening party: one host plays audio; everyone with the link can search YouTube and add tracks to a shared queue. Realtime updates use Supabase.
 
 ## Setup
