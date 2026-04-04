@@ -1,6 +1,6 @@
 {
-  "name": "Jam — YouTube listening party",
-  "short_name": "Jam",
+  "name": "Vibin — YouTube listening party",
+  "short_name": "Vibin",
   "description": "Host YouTube playback and let friends queue tracks together.",
   "start_url": "/",
   "display": "standalone",

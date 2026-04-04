@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -8,8 +15,16 @@ import { ensureAnonymousSession } from "@/lib/auth";
 import { getOrCreateDisplayName } from "@/lib/displayName";
 import type { QueueItem, YouTubeSearchItem } from "@/lib/types";
 import { YouTubeHostPlayer } from "@/components/YouTubeHostPlayer";
-import { QueueList } from "@/components/QueueList";
+import {
+  QueueList,
+  type QueueListHandle,
+} from "@/components/QueueList";
 import { SearchYouTube } from "@/components/SearchYouTube";
+import { HostYoutubePlaylists } from "@/components/HostYoutubePlaylists";
+import { GuestInviteDialog } from "@/components/GuestInviteDialog";
+import { VibinMark } from "@/components/VibinMark";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 
 type Props = {
   roomId: string;
@@ -19,11 +34,35 @@ type Props = {
 const linkClass =
   "text-accent focus-visible:ring-ring inline-flex min-h-11 items-center rounded-lg text-sm font-semibold underline underline-offset-4 transition-colors hover:brightness-110 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-const ghostBtnClass =
-  "border-border text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+/** App wordmark next to logo in room header (tight line-height + slight optical shift vs square mark) */
+const headerBrandWordClass =
+  "text-accent font-display text-xl font-bold leading-none tracking-normal text-[35px] sm:mb-[-13px] mb-[-6px]";
 
-const primaryGhostBtnClass =
-  "bg-primary/15 text-primary hover:bg-primary/25 focus-visible:ring-ring inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+const headerToolbarClass =
+  "border-border/70 bg-card/45 flex shrink-0 items-center gap-0.5 self-center rounded-2xl border p-0.5 shadow-sm backdrop-blur-sm";
+
+const headerToolbarBtnClass =
+  "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
+
+const collapsibleTriggerClass =
+  "text-foreground hover:bg-muted/50 focus-visible:ring-ring group flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pl-0.5 pr-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:gap-2 sm:pl-1";
+
+function CollapseChevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`text-muted-foreground size-5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
 
 export function RoomClient({ roomId, hostToken }: Props) {
   const [ready, setReady] = useState(false);
@@ -31,9 +70,47 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [guestInviteUrl, setGuestInviteUrl] = useState("");
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [playbackPaused, setPlaybackPaused] = useState(false);
+  const [playbackCurrentItemId, setPlaybackCurrentItemId] = useState<
+    string | null
+  >(null);
+  const [controlsBusy, setControlsBusy] = useState(false);
+  const [queueJumpBusy, setQueueJumpBusy] = useState(false);
+  const [clearQueueBusy, setClearQueueBusy] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [queueSectionOpen, setQueueSectionOpen] = useState(true);
+  const [playlistSectionOpen, setPlaylistSectionOpen] = useState(true);
+  const [queuePinnedToTop, setQueuePinnedToTop] = useState(true);
+  const [queueSectionInView, setQueueSectionInView] = useState(true);
+
+  const queueSectionRef = useRef<HTMLElement | null>(null);
+  const queueListRef = useRef<QueueListHandle | null>(null);
 
   const hostTokenForRpc = hostToken ?? "";
+
+  const onQueuePinnedChange = useCallback((pinned: boolean) => {
+    setQueuePinnedToTop(pinned);
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const el = queueSectionRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const e = entries[0];
+        if (!e) return;
+        setQueueSectionInView(
+          e.isIntersecting && e.intersectionRatio > 0.08
+        );
+      },
+      { threshold: [0, 0.05, 0.08, 0.12, 0.2, 0.35, 0.5] }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [ready]);
 
   const loadQueue = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -47,6 +124,23 @@ export function RoomClient({ roomId, hostToken }: Props) {
       return;
     }
     setQueue((data ?? []) as QueueItem[]);
+  }, [roomId]);
+
+  const refreshPlaybackState = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("rooms")
+      .select("playback_paused, playback_current_item_id")
+      .eq("id", roomId)
+      .maybeSingle();
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (data) {
+      setPlaybackPaused(!!data.playback_paused);
+      setPlaybackCurrentItemId(data.playback_current_item_id ?? null);
+    }
   }, [roomId]);
 
   const checkHostRole = useCallback(async () => {
@@ -67,6 +161,11 @@ export function RoomClient({ roomId, hostToken }: Props) {
   useEffect(() => {
     let cancelled = false;
     let channel: RealtimeChannel | null = null;
+
+    const onQueueEvent = () => {
+      void loadQueue();
+      void refreshPlaybackState();
+    };
 
     (async () => {
       let supabase: ReturnType<typeof getSupabaseBrowserClient>;
@@ -96,18 +195,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
       const joinError = hostToken
         ? (
-            await supabase.rpc("join_with_host_token", {
-              p_room_id: roomId,
-              p_host_token: hostToken,
-            })
-          ).error
+          await supabase.rpc("join_with_host_token", {
+            p_room_id: roomId,
+            p_host_token: hostToken,
+          })
+        ).error
         : (await supabase.rpc("join_room", { p_room_id: roomId })).error;
 
       if (joinError) {
         if (!cancelled) {
           setBootError(
             /not found|invalid/i.test(joinError.message)
-              ? "This jam does not exist or the link is invalid."
+              ? "This room does not exist or the link is invalid."
               : joinError.message
           );
         }
@@ -118,9 +217,10 @@ export function RoomClient({ roomId, hostToken }: Props) {
       if (!cancelled) setIsHost(host);
 
       await loadQueue();
+      await refreshPlaybackState();
 
       channel = supabase
-        .channel(`queue:${roomId}`)
+        .channel(`room:${roomId}`)
         .on(
           "postgres_changes",
           {
@@ -129,8 +229,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
             table: "queue_items",
             filter: `room_id=eq.${roomId}`,
           },
+          onQueueEvent
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "rooms",
+            filter: `id=eq.${roomId}`,
+          },
           () => {
-            void loadQueue();
+            void refreshPlaybackState();
           }
         )
         .subscribe();
@@ -148,12 +258,49 @@ export function RoomClient({ roomId, hostToken }: Props) {
         }
       }
     };
-  }, [roomId, hostToken, loadQueue, checkHostRole]);
+  }, [
+    roomId,
+    hostToken,
+    loadQueue,
+    checkHostRole,
+    refreshPlaybackState,
+  ]);
 
-  const nowPlaying = queue[0] ?? null;
-  const nowPlayingId = nowPlaying?.id ?? null;
+  const effectiveNowId = useMemo(() => {
+    if (queue.length === 0) return null;
+    if (
+      playbackCurrentItemId &&
+      queue.some((q) => q.id === playbackCurrentItemId)
+    ) {
+      return playbackCurrentItemId;
+    }
+    return queue[0]?.id ?? null;
+  }, [queue, playbackCurrentItemId]);
 
-  const handleEnded = useCallback(async () => {
+  const nowPlaying = useMemo(
+    () => queue.find((q) => q.id === effectiveNowId) ?? null,
+    [queue, effectiveNowId]
+  );
+  const nowPlayingId = effectiveNowId;
+  const hasNowPlaying = !!nowPlaying;
+
+  const currentQueueIndex = useMemo(() => {
+    if (!effectiveNowId) return -1;
+    return queue.findIndex((q) => q.id === effectiveNowId);
+  }, [queue, effectiveNowId]);
+
+  const canPrev = currentQueueIndex > 0;
+
+  const handleGoToNowPlaying = useCallback(() => {
+    setQueueSectionOpen(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        queueListRef.current?.scrollCurrentToTop();
+      });
+    });
+  }, []);
+
+  const advanceToNextTrack = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
     const { error } = await supabase.rpc("advance_queue", {
       p_room_id: roomId,
@@ -161,7 +308,58 @@ export function RoomClient({ roomId, hostToken }: Props) {
     });
     if (error) console.error(error);
     await loadQueue();
-  }, [roomId, hostTokenForRpc, loadQueue]);
+    await refreshPlaybackState();
+  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+
+  const goPrevious = useCallback(async () => {
+    setControlsBusy(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("playback_previous", {
+        p_room_id: roomId,
+        p_host_token: hostTokenForRpc,
+      });
+      if (error) console.error(error);
+      await loadQueue();
+      await refreshPlaybackState();
+    } finally {
+      setControlsBusy(false);
+    }
+  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+
+  const goNext = useCallback(async () => {
+    setControlsBusy(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("advance_queue", {
+        p_room_id: roomId,
+        p_host_token: hostTokenForRpc,
+      });
+      if (error) console.error(error);
+      await loadQueue();
+      await refreshPlaybackState();
+    } finally {
+      setControlsBusy(false);
+    }
+  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+
+  const setPaused = useCallback(
+    async (paused: boolean) => {
+      setControlsBusy(true);
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("playback_set_paused", {
+          p_room_id: roomId,
+          p_paused: paused,
+        });
+        if (error) console.error(error);
+        await refreshPlaybackState();
+      } finally {
+        setControlsBusy(false);
+      }
+    },
+    [roomId, refreshPlaybackState]
+  );
 
   const handleAdd = useCallback(
     async (item: YouTubeSearchItem) => {
@@ -188,21 +386,62 @@ export function RoomClient({ roomId, hostToken }: Props) {
       });
       if (error) console.error(error);
       await loadQueue();
+      await refreshPlaybackState();
     },
-    [hostTokenForRpc, loadQueue]
+    [hostTokenForRpc, loadQueue, refreshPlaybackState]
   );
 
-  const copyGuestLink = useCallback(() => {
-    if (typeof window === "undefined") return;
-    const u = new URL(window.location.href);
-    u.searchParams.delete("h");
-    void navigator.clipboard.writeText(u.toString());
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
-  }, []);
+  const handlePlayQueueItem = useCallback(
+    async (itemId: string) => {
+      if (itemId === nowPlayingId) return;
+      setQueueJumpBusy(true);
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("jump_to_queue_item", {
+          p_item_id: itemId,
+          p_host_token: hostTokenForRpc,
+        });
+        if (error) console.error(error);
+        await loadQueue();
+        await refreshPlaybackState();
+      } finally {
+        setQueueJumpBusy(false);
+      }
+    },
+    [hostTokenForRpc, loadQueue, nowPlayingId, refreshPlaybackState]
+  );
+
+  const runClearQueue = useCallback(async () => {
+    setClearQueueBusy(true);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("clear_room_queue", {
+        p_room_id: roomId,
+        p_host_token: hostTokenForRpc,
+      });
+      if (error) {
+        console.error(error);
+        return;
+      }
+      await loadQueue();
+      await refreshPlaybackState();
+      setClearConfirmOpen(false);
+    } finally {
+      setClearQueueBusy(false);
+    }
+  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+
+  const openGuestInvite = useCallback(() => {
+    if (typeof window !== "undefined") {
+      setGuestInviteUrl(
+        (u) => u || `${window.location.origin}/r/${roomId}`
+      );
+    }
+    setInviteOpen(true);
+  }, [roomId]);
 
   const shellMainClass =
-    "jam-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.75rem)] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
+    "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
 
   if (configError) {
     return (
@@ -227,7 +466,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
   if (bootError) {
     return (
       <main className={`${shellMainClass} gap-5`}>
-        <h1 className="font-display text-xl font-bold">Cannot open jam</h1>
+        <h1 className="font-display text-xl font-bold">Cannot open room</h1>
         <p className="text-muted-foreground text-sm leading-relaxed">
           {bootError}
         </p>
@@ -240,124 +479,248 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   if (!ready) {
     return (
-      <main className={`${shellMainClass} items-center justify-center py-24`}>
-        <p className="text-muted-foreground animate-pulse text-sm motion-reduce:animate-none">
-          Joining jam…
-        </p>
+      <main
+        className={`${shellMainClass} min-h-[100dvh] items-center justify-center`}
+      >
+        <JoinRoomLoader />
       </main>
     );
   }
 
+  const playbackBusy = controlsBusy || queueJumpBusy;
+
+  const queuePlayback = {
+    isPaused: playbackPaused,
+    busy: playbackBusy,
+    canPrevious: canPrev,
+    hasNowPlaying,
+    onPrevious: () => void goPrevious(),
+    onPlay: () => void setPaused(false),
+    onPause: () => void setPaused(true),
+    onNext: () => void goNext(),
+  };
+
+  const showGoToNowPlayingFab =
+    hasNowPlaying &&
+    queue.length > 0 &&
+    (!queueSectionOpen || !queueSectionInView || !queuePinnedToTop);
+
   return (
     <main className={shellMainClass}>
-      <div className="flex flex-col gap-8 lg:grid lg:grid-cols-[minmax(0,1fr)_min(100%,22rem)] lg:items-start lg:gap-12 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="flex flex-col gap-6 lg:gap-8">
-          <header className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 space-y-1">
-              <p className="text-accent text-xs font-semibold tracking-wide uppercase">
-                Jam
-              </p>
-              <h1 className="font-display text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
-                {isHost ? "You’re hosting" : "You’re in the room"}
-              </h1>
-              {isHost ? (
-                <span className="bg-primary/15 text-primary inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold">
-                  Host
-                </span>
-              ) : (
-                <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold">
-                  Guest
-                </span>
-              )}
-            </div>
-            <Link href="/" className={`${linkClass} shrink-0`}>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 xl:max-w-3xl">
+        <header className="border-border/50 flex items-center justify-between gap-3 border-b pb-3 sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-center pr-2">
+            {isHost ? (
+              <>
+                <h1 className="sr-only">Vibin — you are the host</h1>
+                <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1.5 sm:gap-x-2.5">
+                  <div className="flex gap-1.5 items-center">
+                    <VibinMark className="size-10 sm:size-11" />
+                    <span className={`${headerBrandWordClass} shrink-0`}>
+                      Vibin
+                    </span>
+                  </div>
+                  <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem] mb-1">
+                    Host
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1 sm:space-y-1.5">
+                <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1 sm:gap-x-2.5">
+                  <div className="flex sm:gap-1.5 items-center">
+                    <VibinMark className="size-10 sm:size-11" />
+                    <span className={`${headerBrandWordClass} shrink-0`}>
+                      Vibin
+                    </span>
+                  </div>
+                  <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
+                    Guest
+                  </span>
+                </div>
+                <h1 className="font-display text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
+                  You’re in the room
+                </h1>
+              </div>
+            )}
+          </div>
+          <div className={headerToolbarClass}>
+            {isHost && (
+              <button
+                type="button"
+                onClick={openGuestInvite}
+                className={headerToolbarBtnClass}
+                title="QR code and share link for guests (without host key)"
+              >
+                Invite
+              </button>
+            )}
+            <Link href="/" className={`${headerToolbarBtnClass} no-underline`}>
               Home
             </Link>
-          </header>
+          </div>
+        </header>
 
-          {isHost && (
-            <section className="flex flex-col gap-3" aria-label="Playback">
-              <YouTubeHostPlayer
-                videoId={nowPlaying?.video_id ?? null}
-                onEnded={handleEnded}
-              />
-              <p className="text-muted-foreground text-center text-xs leading-relaxed">
-                Playback runs on this device. Keep the tab open for the party.
-              </p>
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <button
-                  type="button"
-                  onClick={copyGuestLink}
-                  className={ghostBtnClass}
-                  aria-live="polite"
-                >
-                  {copied ? "Copied link" : "Copy guest link"}
-                </button>
-                {nowPlaying && (
-                  <button
-                    type="button"
-                    onClick={() => void handleEnded()}
-                    className={primaryGhostBtnClass}
-                  >
-                    Skip track
-                  </button>
-                )}
-              </div>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Share the URL <strong className="text-foreground font-semibold">without</strong>{" "}
-                <code className="text-foreground bg-muted rounded px-1 py-0.5 text-[0.7rem]">
-                  ?h=
-                </code>
-                —that parameter is your private host key.
-              </p>
-            </section>
-          )}
+        <section aria-labelledby="search-heading" className="flex flex-col gap-1">
+          <h2 id="search-heading" className="sr-only">
+            Search YouTube
+          </h2>
+          <SearchYouTube onAdd={handleAdd} />
+        </section>
 
-          {!isHost && nowPlaying && (
-            <section
-              className="border-border bg-card rounded-2xl border p-5 shadow-sm"
-              aria-label="Now playing"
+        {isHost && (
+          <section className="flex flex-col gap-2" aria-label="Playback">
+            <YouTubeHostPlayer
+              videoId={nowPlaying?.video_id ?? null}
+              onEnded={advanceToNextTrack}
+              remotePaused={playbackPaused}
+            />
+            <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
+              Playback runs on this device. Keep the tab open for the party.
+            </p>
+          </section>
+        )}
+
+        <section
+          ref={queueSectionRef}
+          className="border-border border-t pt-3"
+          aria-labelledby="queue-section-title"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+            <button
+              type="button"
+              id="queue-section-title"
+              className={collapsibleTriggerClass}
+              aria-expanded={queueSectionOpen}
+              aria-controls="queue-panel"
+              onClick={() => setQueueSectionOpen((o) => !o)}
             >
-              <p className="text-accent text-xs font-bold tracking-wide uppercase">
-                Now playing
-              </p>
-              <p className="text-foreground mt-2 font-display text-lg font-bold leading-snug">
-                {nowPlaying.title}
-              </p>
-              <p className="text-muted-foreground mt-2 text-sm">
-                Sound comes from the host’s device—add songs below to queue up.
-              </p>
-            </section>
-          )}
-        </div>
-
-        <div className="border-border flex flex-col gap-8 border-t pt-8 lg:sticky lg:top-[max(1rem,env(safe-area-inset-top))] lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
-          <section aria-labelledby="queue-heading">
-            <h2
-              id="queue-heading"
-              className="font-display text-foreground mb-4 text-lg font-bold"
-            >
-              Queue
-            </h2>
+              <CollapseChevron open={queueSectionOpen} />
+              <span className="font-display text-base font-bold sm:text-lg">
+                Queue
+              </span>
+            </button>
+            {isHost && queueSectionOpen ? (
+              <button
+                type="button"
+                onClick={() => setClearConfirmOpen(true)}
+                disabled={
+                  queue.length === 0 ||
+                  clearQueueBusy ||
+                  queueJumpBusy ||
+                  clearConfirmOpen
+                }
+                className="border-destructive/45 text-destructive hover:bg-destructive/10 focus-visible:ring-destructive inline-flex min-h-8 shrink-0 items-center justify-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:text-xs"
+              >
+                Clear queue
+              </button>
+            ) : null}
+          </div>
+          <div
+            id="queue-panel"
+            role="region"
+            aria-labelledby="queue-section-title"
+            hidden={!queueSectionOpen}
+            className={
+              queueSectionOpen ? "mt-3 flex flex-col gap-3" : "hidden"
+            }
+          >
             <QueueList
+              ref={queueListRef}
               items={queue}
               isHost={isHost}
               onRemove={handleRemove}
               nowPlayingId={nowPlayingId}
+              onPlayItem={(id) => void handlePlayQueueItem(id)}
+              playBusy={queueJumpBusy}
+              playback={hasNowPlaying ? queuePlayback : undefined}
+              onPinnedChange={onQueuePinnedChange}
             />
-          </section>
+          </div>
+        </section>
 
+        {isHost && (
           <section
-            className="border-border border-t pt-8 lg:pt-6"
-            aria-labelledby="search-heading"
+            className="border-border border-t pt-3"
+            aria-labelledby="yt-pl-section-title"
           >
-            <h2 id="search-heading" className="sr-only">
-              Add to queue
-            </h2>
-            <SearchYouTube onAdd={handleAdd} />
+            <button
+              type="button"
+              id="yt-pl-section-title"
+              className={collapsibleTriggerClass}
+              aria-expanded={playlistSectionOpen}
+              aria-controls="yt-pl-panel"
+              onClick={() => setPlaylistSectionOpen((o) => !o)}
+            >
+              <CollapseChevron open={playlistSectionOpen} />
+              <span className="font-display text-base font-bold sm:text-lg">
+                Your YouTube playlists
+              </span>
+            </button>
+            <div
+              id="yt-pl-panel"
+              role="region"
+              aria-labelledby="yt-pl-section-title"
+              hidden={!playlistSectionOpen}
+              className={
+                playlistSectionOpen ? "mt-[2px] flex flex-col gap-2.5" : "hidden"
+              }
+            >
+              <p className="text-muted-foreground max-w-prose text-[0.7rem] leading-snug sm:text-xs">
+                Connect Google to list playlists. Add one track, add all, or
+                replace the queue.
+              </p>
+              <Suspense
+                fallback={
+                  <p className="text-muted-foreground text-xs">
+                    Loading playlists…
+                  </p>
+                }
+              >
+                <HostYoutubePlaylists
+                  roomId={roomId}
+                  omitSectionChrome
+                  onImported={() => {
+                    void loadQueue();
+                    void refreshPlaybackState();
+                  }}
+                />
+              </Suspense>
+            </div>
           </section>
-        </div>
+        )}
+
+        {isHost ? (
+          <>
+            <ConfirmDialog
+              open={clearConfirmOpen}
+              onOpenChange={setClearConfirmOpen}
+              title="Clear queue?"
+              description="Remove every track from the queue. This cannot be undone."
+              confirmLabel="Clear queue"
+              onConfirm={runClearQueue}
+              busy={clearQueueBusy}
+              destructive
+            />
+            <GuestInviteDialog
+              open={inviteOpen}
+              onOpenChange={setInviteOpen}
+              url={guestInviteUrl}
+            />
+          </>
+        ) : null}
       </div>
+
+      {showGoToNowPlayingFab ? (
+        <button
+          type="button"
+          onClick={handleGoToNowPlaying}
+          disabled={queueJumpBusy}
+          className="border-primary/35 bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-1/2 z-40 inline-flex min-h-10 -translate-x-1/2 items-center justify-center rounded-full border px-4 py-2 text-xs font-bold shadow-lg shadow-black/20 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-45 sm:bottom-[max(1.1rem,env(safe-area-inset-bottom))] sm:px-5 sm:text-sm"
+        >
+          Go to now playing
+        </button>
+      ) : null}
     </main>
   );
 }

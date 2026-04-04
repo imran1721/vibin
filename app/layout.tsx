@@ -15,14 +15,14 @@ const bricolage = Bricolage_Grotesque({
 });
 
 export const metadata: Metadata = {
-  title: "Jam — YouTube listening party",
+  title: "Vibin — YouTube listening party",
   description:
     "Host YouTube playback and let friends queue tracks together from their phones.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Jam",
+    title: "Vibin",
   },
   formatDetection: {
     telephone: false,

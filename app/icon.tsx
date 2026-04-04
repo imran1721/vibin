@@ -1,4 +1,4 @@
-import { JamAppIconMark } from "@/components/JamAppIconMark";
+import { VibinAppIconMark } from "@/components/VibinAppIconMark";
 import { ImageResponse } from "next/og";
 
 export function generateImageMetadata() {
@@ -7,19 +7,19 @@ export function generateImageMetadata() {
       id: "32",
       size: { width: 32, height: 32 },
       contentType: "image/png",
-      alt: "Jam",
+      alt: "Vibin",
     },
     {
       id: "192",
       size: { width: 192, height: 192 },
       contentType: "image/png",
-      alt: "Jam",
+      alt: "Vibin",
     },
     {
       id: "512",
       size: { width: 512, height: 512 },
       contentType: "image/png",
-      alt: "Jam",
+      alt: "Vibin",
     },
   ];
 }
@@ -33,7 +33,7 @@ export default async function Icon({
   const size =
     iconId === "192" ? 192 : iconId === "512" ? 512 : 32;
 
-  return new ImageResponse(<JamAppIconMark size={size} />, {
+  return new ImageResponse(<VibinAppIconMark size={size} />, {
     width: size,
     height: size,
   });

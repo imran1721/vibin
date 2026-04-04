@@ -88,7 +88,7 @@ body {
 }
 
 /* Subtle page wash — warm radial, not purple gradient slop */
-.jam-page-bg {
+.vibin-page-bg {
   background:
     radial-gradient(
       120% 80% at 15% -10%,
@@ -101,5 +101,128 @@ body {
       transparent 50%
     ),
     var(--background);
+}
+
+/* Join room — loader ring, logo float, equalizer bars */
+@keyframes vibin-join-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes vibin-join-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes vibin-join-bar {
+  0%,
+  100% {
+    transform: scaleY(0.28);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@keyframes vibin-join-shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes vibin-join-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.vibin-join-loader-root {
+  animation: vibin-join-enter 0.45s ease-out both;
+}
+
+.vibin-join-ring {
+  animation: vibin-join-spin 1.35s linear infinite;
+}
+
+.vibin-join-ring-slow {
+  animation: vibin-join-spin 2.4s linear infinite reverse;
+}
+
+.vibin-join-mark-wrap {
+  animation: vibin-join-float 2.2s ease-in-out infinite;
+}
+
+.vibin-join-bar {
+  height: 2.25rem;
+  width: 0.3rem;
+  border-radius: 9999px;
+  transform-origin: center bottom;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklch, var(--primary) 88%, transparent),
+    color-mix(in oklch, var(--accent) 70%, transparent)
+  );
+  animation: vibin-join-bar 0.75s ease-in-out infinite;
+}
+
+.vibin-join-bar:nth-child(1) {
+  animation-delay: 0ms;
+}
+.vibin-join-bar:nth-child(2) {
+  animation-delay: 90ms;
+}
+.vibin-join-bar:nth-child(3) {
+  animation-delay: 180ms;
+}
+.vibin-join-bar:nth-child(4) {
+  animation-delay: 270ms;
+}
+.vibin-join-bar:nth-child(5) {
+  animation-delay: 360ms;
+}
+
+.vibin-join-caption {
+  animation: vibin-join-shimmer 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vibin-join-loader-root {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .vibin-join-ring,
+  .vibin-join-ring-slow {
+    animation: none;
+  }
+  .vibin-join-mark-wrap {
+    animation: none;
+  }
+  .vibin-join-bar {
+    animation: none;
+    transform: scaleY(0.65);
+    opacity: 0.85;
+  }
+  .vibin-join-caption {
+    animation: none;
+    opacity: 0.9;
+  }
 }
 

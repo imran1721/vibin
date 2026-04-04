@@ -1,5 +1,5 @@
 /** Shared visual for favicon / PWA / Apple touch (ImageResponse subtree). */
-export function JamAppIconMark({ size }: { size: number }) {
+export function VibinAppIconMark({ size }: { size: number }) {
   const barW = Math.max(2, Math.round(size * 0.14));
   const gap = Math.round(size * 0.09);
   const rOuter = Math.round(size * 0.25);

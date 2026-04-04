@@ -125,7 +125,8 @@ $$;
 
 grant execute on function public.is_host(uuid, text) to authenticated;
 
--- RPC: advance queue (remove first item) — host by JWT role or valid host_token
+-- RPC: advance queue (remove first item) — any room member or valid host_token
+-- (Guests may skip; see 002_guest_advance_queue.sql if you already applied v1.)
 create or replace function public.advance_queue(p_room_id uuid, p_host_token text)
 returns void
 language plpgsql
@@ -141,7 +142,7 @@ begin
     where r.id = p_room_id and r.host_token = p_host_token
   ) or exists (
     select 1 from public.room_members m
-    where m.room_id = p_room_id and m.user_id = auth.uid() and m.role = 'host'
+    where m.room_id = p_room_id and m.user_id = auth.uid()
   );
 
   if not ok then

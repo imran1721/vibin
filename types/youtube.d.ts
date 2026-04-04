@@ -5,6 +5,7 @@ declare global {
     interface Player {
       loadVideoById(videoId: string): void;
       playVideo(): void;
+      pauseVideo(): void;
       stopVideo(): void;
       destroy(): void;
     }

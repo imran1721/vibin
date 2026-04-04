@@ -4,9 +4,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
-
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { JoinRoomLoader } from "@/components/JoinRoomLoader";
+import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
+import { VibinMark } from "@/components/VibinMark";
+import { extractRoomIdFromScan } from "@/lib/extractRoomIdFromScan";
 
 const inputClass =
   "border-border bg-surface-elevated text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 w-full rounded-2xl border px-4 py-3 text-base outline-none transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -14,13 +15,15 @@ const inputClass =
 const secondaryBtnClass =
   "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-export function JamHome() {
+export function VibinHome() {
   const router = useRouter();
   const [joinId, setJoinId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [joinNavigating, setJoinNavigating] = useState(false);
+  const [scanOpen, setScanOpen] = useState(false);
 
-  async function startJam() {
+  async function startRoom() {
     setError(null);
     setBusy(true);
     try {
@@ -39,31 +42,44 @@ export function JamHome() {
       setError(
         e instanceof Error
           ? e.message
-          : "Could not create jam. Check Supabase and Anonymous auth."
+          : "Could not create room. Check Supabase and Anonymous auth."
       );
     } finally {
       setBusy(false);
     }
   }
 
-  function joinJam() {
+  function joinRoom() {
     setError(null);
-    const id = joinId.trim();
-    if (!UUID_RE.test(id)) {
-      setError("Paste a valid jam ID (UUID from the link).");
+    const id = extractRoomIdFromScan(joinId);
+    if (!id) {
+      setError("Paste a valid room ID or invite link.");
       return;
     }
+    setJoinNavigating(true);
     router.push(`/r/${id}`);
   }
 
+  function onQrDecoded(roomId: string) {
+    setError(null);
+    setJoinNavigating(true);
+    router.push(`/r/${roomId}`);
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
+    <div className="relative mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
+      {joinNavigating ? (
+        <div className="vibin-page-bg fixed inset-0 z-[80]">
+          <JoinRoomLoader variant="overlay" />
+        </div>
+      ) : null}
       <header className="space-y-3">
         <p className="text-accent font-display text-sm font-semibold tracking-wide">
           YouTube listening party
         </p>
-        <h1 className="font-display text-foreground text-4xl font-extrabold tracking-tight sm:text-5xl">
-          Jam
+        <h1 className="font-display text-foreground flex flex-wrap items-center gap-2 text-5xl font-extrabold leading-none tracking-tight sm:gap-3 sm:text-6xl">
+          <VibinMark className="size-[3.25rem] sm:size-16" />
+          <span className="-translate-y-1 sm:-translate-y-0.5">Vibin</span>
         </h1>
         <p className="text-muted-foreground max-w-prose text-base leading-relaxed sm:text-[1.05rem]">
           Start a session, share the link, and let friends queue videos while you
@@ -75,14 +91,14 @@ export function JamHome() {
         <button
           type="button"
           disabled={busy}
-          onClick={() => void startJam()}
+          onClick={() => void startRoom()}
           className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-6 py-3.5 text-base font-bold shadow-lg shadow-black/20 transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:shadow-black/50 enabled:active:scale-[0.99] motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-55"
         >
-          {busy ? "Starting…" : "Start a jam"}
+          {busy ? "Starting…" : "Start a room"}
         </button>
       </div>
 
-      <div className="border-border flex flex-col gap-4 border-t pt-8">
+      <div className="border-border flex flex-col gap-3 border-t pt-8">
         <div>
           <label
             htmlFor="join-id"
@@ -98,12 +114,34 @@ export function JamHome() {
             className={`${inputClass} font-mono text-sm`}
             autoComplete="off"
             spellCheck={false}
+            disabled={joinNavigating}
           />
         </div>
-        <button type="button" onClick={joinJam} className={secondaryBtnClass}>
-          Join jam
-        </button>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={joinNavigating}
+            onClick={joinRoom}
+            className={`${secondaryBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            Join room
+          </button>
+          <button
+            type="button"
+            disabled={joinNavigating}
+            onClick={() => setScanOpen(true)}
+            className="border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Scan QR code
+          </button>
+        </div>
       </div>
+
+      <JoinRoomQrDialog
+        open={scanOpen}
+        onOpenChange={setScanOpen}
+        onDecoded={onQrDecoded}
+      />
 
       {error && (
         <div

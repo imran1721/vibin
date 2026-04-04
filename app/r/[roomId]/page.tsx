@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
+import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomClient } from "./RoomClient";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +13,8 @@ const linkClass =
 
 function RoomFallback() {
   return (
-    <main className="jam-page-bg mx-auto flex max-w-lg flex-col items-center justify-center px-4 py-24">
-      <p className="text-muted-foreground animate-pulse text-sm motion-reduce:animate-none">
-        Loading…
-      </p>
+    <main className="vibin-page-bg mx-auto flex min-h-[100dvh] w-full max-w-lg flex-col items-center justify-center px-[clamp(1rem,4vw,1.5rem)]">
+      <JoinRoomLoader />
     </main>
   );
 }
@@ -32,7 +31,7 @@ export default async function RoomPage({
 
   if (!UUID_RE.test(roomId)) {
     return (
-      <main className="jam-page-bg mx-auto flex max-w-lg flex-col gap-5 px-[clamp(1rem,4vw,1.75rem)] py-10 pt-[max(1.5rem,env(safe-area-inset-top))]">
+      <main className="vibin-page-bg mx-auto flex max-w-lg flex-col gap-5 px-[clamp(1rem,4vw,1.75rem)] py-10 pt-[max(1.5rem,env(safe-area-inset-top))]">
         <h1 className="font-display text-xl font-bold">Invalid link</h1>
         <p className="text-muted-foreground text-sm">
           That room ID is not valid.
