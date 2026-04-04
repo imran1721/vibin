@@ -7,17 +7,12 @@ import { ensureAnonymousSession } from "@/lib/auth";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
 import { VibinMark } from "@/components/VibinMark";
-import { extractRoomIdFromScan } from "@/lib/extractRoomIdFromScan";
 
-const inputClass =
-  "border-border bg-surface-elevated text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 w-full rounded-2xl border px-4 py-3 text-base outline-none transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
-
-const secondaryBtnClass =
-  "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+const scanQrBtnClass =
+  "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 export function VibinHome() {
   const router = useRouter();
-  const [joinId, setJoinId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [joinNavigating, setJoinNavigating] = useState(false);
@@ -47,17 +42,6 @@ export function VibinHome() {
     } finally {
       setBusy(false);
     }
-  }
-
-  function joinRoom() {
-    setError(null);
-    const id = extractRoomIdFromScan(joinId);
-    if (!id) {
-      setError("Paste a valid room ID or invite link.");
-      return;
-    }
-    setJoinNavigating(true);
-    router.push(`/r/${id}`);
   }
 
   function onQrDecoded(roomId: string) {
@@ -99,42 +83,18 @@ export function VibinHome() {
       </div>
 
       <div className="border-border flex flex-col gap-3 border-t pt-8">
-        <div>
-          <label
-            htmlFor="join-id"
-            className="text-foreground mb-2 block text-sm font-semibold"
-          >
-            Join with room ID
-          </label>
-          <input
-            id="join-id"
-            value={joinId}
-            onChange={(e) => setJoinId(e.target.value)}
-            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-            className={`${inputClass} font-mono text-sm`}
-            autoComplete="off"
-            spellCheck={false}
-            disabled={joinNavigating}
-          />
-        </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <button
-            type="button"
-            disabled={joinNavigating}
-            onClick={joinRoom}
-            className={`${secondaryBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            Join room
-          </button>
-          <button
-            type="button"
-            disabled={joinNavigating}
-            onClick={() => setScanOpen(true)}
-            className="border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Scan QR code
-          </button>
-        </div>
+        <p className="text-foreground text-sm font-semibold">Join a room</p>
+        <p className="text-muted-foreground -mt-1 text-sm leading-relaxed">
+          Scan the QR code from the host&apos;s invite.
+        </p>
+        <button
+          type="button"
+          disabled={joinNavigating}
+          onClick={() => setScanOpen(true)}
+          className={`${scanQrBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          Scan QR code
+        </button>
       </div>
 
       <JoinRoomQrDialog

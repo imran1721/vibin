@@ -120,7 +120,7 @@ export function JoinRoomQrDialog({ open, onOpenChange, onDecoded }: Props) {
               e instanceof Error ? e.message : "Could not start camera";
             setScanError(
               /Permission|NotAllowed|NotFound/i.test(msg)
-                ? "Camera access was blocked or no camera was found. Allow camera for this site or use room ID below."
+                ? "Camera access was blocked or no camera was found. Allow camera for this site, or open the invite link the host shared."
                 : msg
             );
           }
