@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
+import { AnalyticsSession } from "@/components/AnalyticsSession";
+import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -51,6 +53,8 @@ export default function RootLayout({
       className={`${dmSans.variable} ${bricolage.variable} h-full antialiased`}
     >
       <body className="bg-background text-foreground min-h-full flex flex-col font-sans">
+        <AnalyticsSession />
+        <ServiceWorkerRegistration />
         {children}
       </body>
     </html>

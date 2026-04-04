@@ -131,6 +131,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
+  const advanceInFlightRef = useRef(false);
 
   const hostTokenForRpc = hostToken ?? "";
 
@@ -350,14 +351,20 @@ export function RoomClient({ roomId, hostToken }: Props) {
   }, []);
 
   const advanceToNextTrack = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    const { error } = await supabase.rpc("advance_queue", {
-      p_room_id: roomId,
-      p_host_token: hostTokenForRpc,
-    });
-    if (error) console.error(error);
-    await loadQueue();
-    await refreshPlaybackState();
+    if (advanceInFlightRef.current) return;
+    advanceInFlightRef.current = true;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("advance_queue", {
+        p_room_id: roomId,
+        p_host_token: hostTokenForRpc,
+      });
+      if (error) console.error(error);
+      await loadQueue();
+      await refreshPlaybackState();
+    } finally {
+      advanceInFlightRef.current = false;
+    }
   }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
 
   const goPrevious = useCallback(async () => {
@@ -422,8 +429,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
       });
       if (error) console.error(error);
       await loadQueue();
+      await refreshPlaybackState();
     },
-    [roomId, loadQueue]
+    [roomId, loadQueue, refreshPlaybackState]
   );
 
   const handleRemove = useCallback(

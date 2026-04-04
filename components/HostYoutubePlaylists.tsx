@@ -180,7 +180,7 @@ export function HostYoutubePlaylists({
         }
         const short =
           it.title.length > 42 ? `${it.title.slice(0, 42)}…` : it.title;
-        setImportMsg(`Added “${short}” to queue.`);
+        // setImportMsg(`Added “${short}” to queue.`);
         onImported?.();
       } finally {
         setSingleAddBusyId(null);
@@ -277,118 +277,118 @@ export function HostYoutubePlaylists({
           role="region"
           aria-label="Scrollable playlist list"
         >
-        <ul className="flex min-w-0 w-full flex-col gap-1.5 pb-2 pr-1">
-          {playlists.map((pl) => {
-            const open = expandedId === pl.id;
-            const items = itemsByPlaylist[pl.id];
-            const loading = itemsLoading === pl.id;
-            return (
-              <li
-                key={pl.id}
-                className="border-border min-w-0 overflow-hidden rounded-xl border"
-              >
-                <button
-                  type="button"
-                  onClick={() => void togglePlaylist(pl.id)}
-                  className="hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-2.5 py-2.5 text-left transition-colors sm:px-3.5"
+          <ul className="flex min-w-0 w-full flex-col gap-1.5 pb-2 pr-1">
+            {playlists.map((pl) => {
+              const open = expandedId === pl.id;
+              const items = itemsByPlaylist[pl.id];
+              const loading = itemsLoading === pl.id;
+              return (
+                <li
+                  key={pl.id}
+                  className="border-border min-w-0 overflow-hidden rounded-xl border"
                 >
-                  <span className="text-foreground min-w-0 flex-1 truncate font-semibold">
-                    {pl.title}
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {pl.itemCount != null ? `${pl.itemCount} · ` : ""}
-                    {open ? "Hide" : "Show"}
-                  </span>
-                </button>
-                {open && (
-                  <div className="border-border border-t px-2.5 py-2.5 sm:px-3.5">
-                    {loading && (
-                      <p className="text-muted-foreground text-xs">
-                        Loading…
-                      </p>
-                    )}
-                    {!loading && items && (
-                      <>
-                        <div className="mb-2 flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            disabled={importBusy}
-                            onClick={() =>
-                              void importPlaylist(pl.id, "append")
-                            }
-                            className="bg-primary/15 text-primary hover:bg-primary/25 inline-flex min-h-8 items-center rounded-md px-2 py-1 text-[0.65rem] font-bold disabled:opacity-50 sm:text-xs"
+                  <button
+                    type="button"
+                    onClick={() => void togglePlaylist(pl.id)}
+                    className="hover:bg-muted/50 flex w-full items-center justify-between gap-2 px-2.5 py-2.5 text-left transition-colors sm:px-3.5"
+                  >
+                    <span className="text-foreground min-w-0 flex-1 truncate font-semibold">
+                      {pl.title}
+                    </span>
+                    <span className="text-muted-foreground shrink-0 text-xs">
+                      {pl.itemCount != null ? `${pl.itemCount} · ` : ""}
+                      {open ? "Hide" : "Show"}
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="border-border border-t px-2.5 py-2.5 sm:px-3.5">
+                      {loading && (
+                        <p className="text-muted-foreground text-xs">
+                          Loading…
+                        </p>
+                      )}
+                      {!loading && items && (
+                        <>
+                          <div className="mb-2 flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              disabled={importBusy}
+                              onClick={() =>
+                                void importPlaylist(pl.id, "append")
+                              }
+                              className="bg-primary/15 text-primary hover:bg-primary/25 inline-flex min-h-8 items-center rounded-md px-2 py-1 text-[0.65rem] font-bold disabled:opacity-50 sm:text-xs"
+                            >
+                              Add all to queue
+                            </button>
+                            <button
+                              type="button"
+                              disabled={importBusy}
+                              onClick={() =>
+                                void importPlaylist(pl.id, "replace")
+                              }
+                              className="border-border hover:bg-muted inline-flex min-h-8 items-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold disabled:opacity-50 sm:text-xs"
+                            >
+                              Replace queue
+                            </button>
+                          </div>
+                          <ul
+                            className="border-border max-h-[min(42svh,18rem)] min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg border text-sm sm:max-h-[min(36svh,16rem)]"
+                            aria-label="Tracks in this playlist"
                           >
-                            Add all to queue
-                          </button>
-                          <button
-                            type="button"
-                            disabled={importBusy}
-                            onClick={() =>
-                              void importPlaylist(pl.id, "replace")
-                            }
-                            className="border-border hover:bg-muted inline-flex min-h-8 items-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold disabled:opacity-50 sm:text-xs"
-                          >
-                            Replace queue
-                          </button>
-                        </div>
-                        <ul
-                          className="border-border max-h-[min(42svh,18rem)] min-w-0 overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg border text-sm sm:max-h-[min(36svh,16rem)]"
-                          aria-label="Tracks in this playlist"
-                        >
-                          {items.map((it) => {
-                            const rowBusy =
-                              singleAddBusyId === it.videoId || importBusy;
-                            const inQueue =
-                              queuedVideoIds?.has(it.videoId) ?? false;
-                            return (
-                              <li
-                                key={it.videoId}
-                                className="border-border flex min-w-0 items-center gap-2 border-b py-2 pl-2 pr-1.5 last:border-b-0 sm:gap-2.5 sm:py-2.5 sm:pl-2.5 sm:pr-2"
-                              >
-                                {it.thumbUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={it.thumbUrl}
-                                    alt=""
-                                    width={96}
-                                    height={54}
-                                    className="h-10 w-[4.5rem] shrink-0 rounded-md object-cover sm:h-11 sm:w-20"
-                                  />
-                                ) : (
-                                  <div className="bg-muted h-10 w-[4.5rem] shrink-0 rounded-md sm:h-11 sm:w-20" />
-                                )}
-                                <p className="text-foreground min-w-0 flex-1 break-words text-xs font-medium leading-snug sm:text-sm">
-                                  {it.title}
-                                </p>
-                                <button
-                                  type="button"
-                                  disabled={rowBusy || inQueue}
-                                  onClick={() => void addSingleToQueue(it)}
-                                  aria-label={
-                                    inQueue ? "Already in queue" : "Add to queue"
-                                  }
-                                  className={
-                                    inQueue ? plAddedBtnClass : plAddBtnClass
-                                  }
+                            {items.map((it) => {
+                              const rowBusy =
+                                singleAddBusyId === it.videoId || importBusy;
+                              const inQueue =
+                                queuedVideoIds?.has(it.videoId) ?? false;
+                              return (
+                                <li
+                                  key={it.videoId}
+                                  className="border-border flex min-w-0 items-center gap-2 border-b py-2 pl-2 pr-1.5 last:border-b-0 sm:gap-2.5 sm:py-2.5 sm:pl-2.5 sm:pr-2"
                                 >
-                                  {singleAddBusyId === it.videoId
-                                    ? "…"
-                                    : inQueue
-                                      ? "Added"
-                                      : "Add"}
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      </>
-                    )}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                                  {it.thumbUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={it.thumbUrl}
+                                      alt=""
+                                      width={96}
+                                      height={54}
+                                      className="h-10 w-[4.5rem] shrink-0 rounded-md object-cover sm:h-11 sm:w-20"
+                                    />
+                                  ) : (
+                                    <div className="bg-muted h-10 w-[4.5rem] shrink-0 rounded-md sm:h-11 sm:w-20" />
+                                  )}
+                                  <p className="text-foreground min-w-0 flex-1 break-words text-xs font-medium leading-snug sm:text-sm">
+                                    {it.title}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    disabled={rowBusy || inQueue}
+                                    onClick={() => void addSingleToQueue(it)}
+                                    aria-label={
+                                      inQueue ? "Already in queue" : "Add to queue"
+                                    }
+                                    className={
+                                      inQueue ? plAddedBtnClass : plAddBtnClass
+                                    }
+                                  >
+                                    {singleAddBusyId === it.videoId
+                                      ? "…"
+                                      : inQueue
+                                        ? "Added"
+                                        : "Add"}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
     </>

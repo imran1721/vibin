@@ -3,6 +3,8 @@
   "short_name": "Vibin",
   "description": "Host YouTube playback and let friends queue tracks together.",
   "start_url": "/",
+  "scope": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#1c1412",
   "theme_color": "#e8945c",

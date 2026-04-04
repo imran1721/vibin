@@ -6,6 +6,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
+import { PwaInstallOption } from "@/components/PwaInstallOption";
 import { VibinMark } from "@/components/VibinMark";
 
 const scanQrBtnClass =
@@ -95,6 +96,10 @@ export function VibinHome() {
         >
           Scan QR code
         </button>
+      </div>
+
+      <div className="border-border flex flex-col gap-3 border-t pt-8">
+        <PwaInstallOption />
       </div>
 
       <JoinRoomQrDialog

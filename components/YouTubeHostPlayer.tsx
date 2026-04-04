@@ -30,6 +30,8 @@ function loadIframeApi(): Promise<void> {
   return iframeApiPromise;
 }
 
+const NATURAL_END_DEBOUNCE_MS = 900;
+
 export function YouTubeHostPlayer({
   videoId,
   onEnded,
@@ -39,6 +41,9 @@ export function YouTubeHostPlayer({
   const playerRef = useRef<YT.Player | null>(null);
   const onEndedRef = useRef(onEnded);
   const remotePausedRef = useRef(remotePaused);
+  /** Previous YT player state, for ignoring spurious ENDED (e.g. during loadVideoById). */
+  const prevYtStateRef = useRef<number>(-1);
+  const lastNaturalEndedAtRef = useRef(0);
   const [playerReady, setPlayerReady] = useState(false);
 
   useEffect(() => {
@@ -48,6 +53,10 @@ export function YouTubeHostPlayer({
   useEffect(() => {
     remotePausedRef.current = remotePaused;
   }, [remotePaused]);
+
+  useEffect(() => {
+    prevYtStateRef.current = window.YT?.PlayerState?.UNSTARTED ?? -1;
+  }, [videoId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,10 +71,19 @@ export function YouTubeHostPlayer({
       el.className = "h-full w-full";
       containerRef.current.appendChild(el);
 
-      const player = new window.YT.Player(el, {
+      const YT = window.YT;
+      const origin =
+        typeof window !== "undefined" ? window.location.origin : undefined;
+
+      const player = new YT.Player(el, {
         height: "100%",
         width: "100%",
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1 },
+        playerVars: {
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          ...(origin ? { origin } : {}),
+        },
         events: {
           onReady: () => {
             if (cancelled) return;
@@ -73,9 +91,22 @@ export function YouTubeHostPlayer({
             setPlayerReady(true);
           },
           onStateChange: (e) => {
-            if (e.data === window.YT.PlayerState.ENDED) {
-              onEndedRef.current();
+            const prev = prevYtStateRef.current;
+            prevYtStateRef.current = e.data;
+
+            if (e.data !== YT.PlayerState.ENDED) return;
+
+            const wasActive =
+              prev === YT.PlayerState.PLAYING ||
+              prev === YT.PlayerState.BUFFERING;
+            if (!wasActive) return;
+
+            const now = Date.now();
+            if (now - lastNaturalEndedAtRef.current < NATURAL_END_DEBOUNCE_MS) {
+              return;
             }
+            lastNaturalEndedAtRef.current = now;
+            onEndedRef.current();
           },
         },
       });
