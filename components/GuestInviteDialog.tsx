@@ -118,13 +118,6 @@ export function GuestInviteDialog({ open, onOpenChange, url }: Props) {
             >
               Invite guests
             </h2>
-            <p className="text-muted-foreground mt-1 text-xs leading-relaxed">
-              Scan the code or share the link—without the host key (
-              <code className="text-foreground/80 bg-muted rounded px-1 py-0.5 text-[0.65rem]">
-                ?h=
-              </code>
-              ).
-            </p>
           </div>
 
           <div className="flex justify-center">
@@ -146,10 +139,6 @@ export function GuestInviteDialog({ open, onOpenChange, url }: Props) {
               )}
             </div>
           </div>
-
-          <p className="text-muted-foreground break-all text-center text-[0.7rem] leading-snug">
-            {url || "…"}
-          </p>
 
           <div className="flex flex-col gap-2">
             {canWebShare ? (
