@@ -16,12 +16,22 @@ type Props = {
   hostToken: string | null;
 };
 
+const linkClass =
+  "text-accent focus-visible:ring-ring inline-flex min-h-11 items-center rounded-lg text-sm font-semibold underline underline-offset-4 transition-colors hover:brightness-110 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+const ghostBtnClass =
+  "border-border text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+const primaryGhostBtnClass =
+  "bg-primary/15 text-primary hover:bg-primary/25 focus-visible:ring-ring inline-flex min-h-11 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
 export function RoomClient({ roomId, hostToken }: Props) {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const hostTokenForRpc = hostToken ?? "";
 
@@ -187,19 +197,27 @@ export function RoomClient({ roomId, hostToken }: Props) {
     const u = new URL(window.location.href);
     u.searchParams.delete("h");
     void navigator.clipboard.writeText(u.toString());
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
   }, []);
+
+  const shellMainClass =
+    "jam-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.75rem)] pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
 
   if (configError) {
     return (
-      <main className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-10">
-        <h1 className="text-xl font-semibold">Configuration</h1>
-        <p className="text-foreground/70 text-sm">{configError}</p>
-        <p className="text-foreground/50 text-xs">
-          Copy <code className="text-foreground/80">.env.example</code> to{" "}
-          <code className="text-foreground/80">.env.local</code> and add your
-          Supabase URL and anon key.
+      <main className={`${shellMainClass} gap-5`}>
+        <h1 className="font-display text-xl font-bold">Configuration</h1>
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          {configError}
         </p>
-        <Link href="/" className="text-amber-400 text-sm underline">
+        <p className="text-muted-foreground text-xs leading-relaxed">
+          Copy <code className="text-foreground bg-muted rounded px-1.5 py-0.5 text-[0.8rem]">.env.example</code>{" "}
+          to{" "}
+          <code className="text-foreground bg-muted rounded px-1.5 py-0.5 text-[0.8rem]">.env.local</code>{" "}
+          and add your Supabase URL and anon key.
+        </p>
+        <Link href="/" className={linkClass}>
           Back home
         </Link>
       </main>
@@ -208,10 +226,12 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   if (bootError) {
     return (
-      <main className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-10">
-        <h1 className="text-xl font-semibold">Cannot open jam</h1>
-        <p className="text-foreground/70 text-sm">{bootError}</p>
-        <Link href="/" className="text-amber-400 text-sm underline">
+      <main className={`${shellMainClass} gap-5`}>
+        <h1 className="font-display text-xl font-bold">Cannot open jam</h1>
+        <p className="text-muted-foreground text-sm leading-relaxed">
+          {bootError}
+        </p>
+        <Link href="/" className={linkClass}>
           Back home
         </Link>
       </main>
@@ -220,87 +240,124 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   if (!ready) {
     return (
-      <main className="mx-auto max-w-lg px-4 py-16 text-center">
-        <p className="text-foreground/60 animate-pulse text-sm">Joining jam…</p>
+      <main className={`${shellMainClass} items-center justify-center py-24`}>
+        <p className="text-muted-foreground animate-pulse text-sm motion-reduce:animate-none">
+          Joining jam…
+        </p>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto flex max-w-lg flex-col gap-6 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
-      <header className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-foreground/50 text-xs uppercase tracking-wide">
-            Jam
-          </p>
-          <h1 className="text-lg font-semibold">
-            {isHost ? "You’re hosting" : "You’re in the room"}
-          </h1>
-        </div>
-        <Link
-          href="/"
-          className="text-foreground/60 hover:text-foreground text-sm underline"
-        >
-          Home
-        </Link>
-      </header>
+    <main className={shellMainClass}>
+      <div className="flex flex-col gap-8 lg:grid lg:grid-cols-[minmax(0,1fr)_min(100%,22rem)] lg:items-start lg:gap-12 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="flex flex-col gap-6 lg:gap-8">
+          <header className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 space-y-1">
+              <p className="text-accent text-xs font-semibold tracking-wide uppercase">
+                Jam
+              </p>
+              <h1 className="font-display text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
+                {isHost ? "You’re hosting" : "You’re in the room"}
+              </h1>
+              {isHost ? (
+                <span className="bg-primary/15 text-primary inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold">
+                  Host
+                </span>
+              ) : (
+                <span className="bg-muted text-muted-foreground inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold">
+                  Guest
+                </span>
+              )}
+            </div>
+            <Link href="/" className={`${linkClass} shrink-0`}>
+              Home
+            </Link>
+          </header>
 
-      {isHost && (
-        <section className="flex flex-col gap-2">
-          <YouTubeHostPlayer
-            videoId={nowPlaying?.video_id ?? null}
-            onEnded={handleEnded}
-          />
-          <p className="text-foreground/50 text-center text-xs">
-            Playback runs on this device. Keep the tab open.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={copyGuestLink}
-              className="border-foreground/20 hover:bg-foreground/5 rounded-lg border px-3 py-2 text-xs"
+          {isHost && (
+            <section className="flex flex-col gap-3" aria-label="Playback">
+              <YouTubeHostPlayer
+                videoId={nowPlaying?.video_id ?? null}
+                onEnded={handleEnded}
+              />
+              <p className="text-muted-foreground text-center text-xs leading-relaxed">
+                Playback runs on this device. Keep the tab open for the party.
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                <button
+                  type="button"
+                  onClick={copyGuestLink}
+                  className={ghostBtnClass}
+                  aria-live="polite"
+                >
+                  {copied ? "Copied link" : "Copy guest link"}
+                </button>
+                {nowPlaying && (
+                  <button
+                    type="button"
+                    onClick={() => void handleEnded()}
+                    className={primaryGhostBtnClass}
+                  >
+                    Skip track
+                  </button>
+                )}
+              </div>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                Share the URL <strong className="text-foreground font-semibold">without</strong>{" "}
+                <code className="text-foreground bg-muted rounded px-1 py-0.5 text-[0.7rem]">
+                  ?h=
+                </code>
+                —that parameter is your private host key.
+              </p>
+            </section>
+          )}
+
+          {!isHost && nowPlaying && (
+            <section
+              className="border-border bg-card rounded-2xl border p-5 shadow-sm"
+              aria-label="Now playing"
             >
-              Copy guest link
-            </button>
-            {nowPlaying && (
-              <button
-                type="button"
-                onClick={() => void handleEnded()}
-                className="bg-foreground/10 hover:bg-foreground/15 rounded-lg px-3 py-2 text-xs font-medium"
-              >
-                Skip
-              </button>
-            )}
-            <span className="text-foreground/40 text-xs">
-              Don’t share the URL with <code className="text-foreground/60">?h=</code> — that’s your host key.
-            </span>
-          </div>
-        </section>
-      )}
+              <p className="text-accent text-xs font-bold tracking-wide uppercase">
+                Now playing
+              </p>
+              <p className="text-foreground mt-2 font-display text-lg font-bold leading-snug">
+                {nowPlaying.title}
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                Sound comes from the host’s device—add songs below to queue up.
+              </p>
+            </section>
+          )}
+        </div>
 
-      {!isHost && nowPlaying && (
-        <section className="border-foreground/15 rounded-xl border p-4">
-          <p className="text-foreground/50 mb-1 text-xs">Now playing</p>
-          <p className="font-medium">{nowPlaying.title}</p>
-          <p className="text-foreground/50 mt-1 text-xs">
-            Audio plays on the host’s device.
-          </p>
-        </section>
-      )}
+        <div className="border-border flex flex-col gap-8 border-t pt-8 lg:sticky lg:top-[max(1rem,env(safe-area-inset-top))] lg:border-t-0 lg:border-l lg:pt-0 lg:pl-10">
+          <section aria-labelledby="queue-heading">
+            <h2
+              id="queue-heading"
+              className="font-display text-foreground mb-4 text-lg font-bold"
+            >
+              Queue
+            </h2>
+            <QueueList
+              items={queue}
+              isHost={isHost}
+              onRemove={handleRemove}
+              nowPlayingId={nowPlayingId}
+            />
+          </section>
 
-      <section>
-        <h2 className="mb-3 text-sm font-semibold">Queue</h2>
-        <QueueList
-          items={queue}
-          isHost={isHost}
-          onRemove={handleRemove}
-          nowPlayingId={nowPlayingId}
-        />
-      </section>
-
-      <section className="border-foreground/10 border-t pt-4">
-        <SearchYouTube onAdd={handleAdd} />
-      </section>
+          <section
+            className="border-border border-t pt-8 lg:pt-6"
+            aria-labelledby="search-heading"
+          >
+            <h2 id="search-heading" className="sr-only">
+              Add to queue
+            </h2>
+            <SearchYouTube onAdd={handleAdd} />
+          </section>
+        </div>
+      </div>
     </main>
   );
 }

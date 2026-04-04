@@ -4,6 +4,6 @@
   "description": "Host YouTube playback and let friends queue tracks together.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0a0a0a",
-  "theme_color": "#d97706"
+  "background_color": "#1c1412",
+  "theme_color": "#e8945c"
 }

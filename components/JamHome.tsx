@@ -8,6 +8,12 @@ import { ensureAnonymousSession } from "@/lib/auth";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+const inputClass =
+  "border-border bg-surface-elevated text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 w-full rounded-2xl border px-4 py-3 text-base outline-none transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+const secondaryBtnClass =
+  "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
 export function JamHome() {
   const router = useRouter();
   const [joinId, setJoinId] = useState("");
@@ -51,51 +57,61 @@ export function JamHome() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Jam</h1>
-        <p className="text-foreground/60 mt-2 text-sm leading-relaxed">
-          Start a session, share the link, and let friends queue YouTube videos
-          while you host playback—like a listening party.
+    <div className="mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
+      <header className="space-y-3">
+        <p className="text-accent font-display text-sm font-semibold tracking-wide">
+          YouTube listening party
         </p>
-      </div>
+        <h1 className="font-display text-foreground text-4xl font-extrabold tracking-tight sm:text-5xl">
+          Jam
+        </h1>
+        <p className="text-muted-foreground max-w-prose text-base leading-relaxed sm:text-[1.05rem]">
+          Start a session, share the link, and let friends queue videos while you
+          host playback—one speaker, everyone adds tracks.
+        </p>
+      </header>
 
       <div className="flex flex-col gap-3">
         <button
           type="button"
           disabled={busy}
           onClick={() => void startJam()}
-          className="bg-amber-500 hover:bg-amber-400 disabled:opacity-60 rounded-2xl px-5 py-4 text-base font-semibold text-black"
+          className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-6 py-3.5 text-base font-bold shadow-lg shadow-black/20 transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:shadow-black/50 enabled:active:scale-[0.99] motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-55"
         >
           {busy ? "Starting…" : "Start a jam"}
         </button>
       </div>
 
-      <div className="border-foreground/10 flex flex-col gap-3 border-t pt-6">
-        <label htmlFor="join-id" className="text-sm font-medium">
-          Join with room ID
-        </label>
-        <input
-          id="join-id"
-          value={joinId}
-          onChange={(e) => setJoinId(e.target.value)}
-          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          className="border-foreground/15 bg-background focus:ring-amber-500/40 rounded-xl border px-4 py-3 font-mono text-sm outline-none focus:ring-2"
-          autoComplete="off"
-        />
-        <button
-          type="button"
-          onClick={joinJam}
-          className="border-foreground/20 hover:bg-foreground/5 rounded-2xl border px-5 py-3 text-sm font-medium"
-        >
+      <div className="border-border flex flex-col gap-4 border-t pt-8">
+        <div>
+          <label
+            htmlFor="join-id"
+            className="text-foreground mb-2 block text-sm font-semibold"
+          >
+            Join with room ID
+          </label>
+          <input
+            id="join-id"
+            value={joinId}
+            onChange={(e) => setJoinId(e.target.value)}
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            className={`${inputClass} font-mono text-sm`}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+        <button type="button" onClick={joinJam} className={secondaryBtnClass}>
           Join jam
         </button>
       </div>
 
       {error && (
-        <p className="text-red-400 text-sm" role="alert">
-          {error}
-        </p>
+        <div
+          className="border-destructive/35 bg-destructive/10 rounded-2xl border px-4 py-3"
+          role="alert"
+        >
+          <p className="text-destructive text-sm font-medium">{error}</p>
+        </div>
       )}
     </div>
   );

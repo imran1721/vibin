@@ -1,26 +1,105 @@
 @import "tailwindcss";
 
+/* Warm “listening party” palette — tinted neutrals, coral primary, teal info accent */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: oklch(0.985 0.009 82);
+  --foreground: oklch(0.24 0.045 270);
+  --primary: oklch(0.56 0.19 38);
+  --primary-foreground: oklch(0.99 0.008 95);
+  --muted: oklch(0.94 0.018 82);
+  --muted-foreground: oklch(0.44 0.035 265);
+  --card: oklch(0.995 0.006 82);
+  --card-foreground: var(--foreground);
+  --border: oklch(0.88 0.022 82);
+  --ring: oklch(0.56 0.19 38);
+  --accent: oklch(0.52 0.1 210);
+  --accent-foreground: oklch(0.99 0.01 95);
+  --destructive: oklch(0.52 0.2 25);
+  --destructive-foreground: oklch(0.99 0.01 95);
+  --success: oklch(0.55 0.14 155);
+  --surface-elevated: oklch(1 0.004 82);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.17 0.03 28);
+    --foreground: oklch(0.95 0.018 85);
+    --primary: oklch(0.74 0.15 45);
+    --primary-foreground: oklch(0.18 0.035 28);
+    --muted: oklch(0.25 0.028 28);
+    --muted-foreground: oklch(0.7 0.04 85);
+    --card: oklch(0.21 0.028 28);
+    --card-foreground: var(--foreground);
+    --border: oklch(0.34 0.038 28);
+    --ring: oklch(0.74 0.15 45);
+    --accent: oklch(0.68 0.11 200);
+    --accent-foreground: oklch(0.16 0.04 28);
+    --destructive: oklch(0.6 0.2 22);
+    --destructive-foreground: oklch(0.99 0.01 95);
+    --success: oklch(0.62 0.14 155);
+    --surface-elevated: oklch(0.24 0.03 28);
+  }
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-surface-elevated: var(--surface-elevated);
+  --font-sans: var(--font-dm), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@utility font-display {
+  font-family: var(--font-bricolage), var(--font-dm), ui-sans-serif, system-ui,
+    sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  font-family: var(--font-sans);
 }
+
+::selection {
+  background: color-mix(in oklch, var(--primary) 35%, transparent);
+  color: var(--foreground);
+}
+
+/* Subtle page wash — warm radial, not purple gradient slop */
+.jam-page-bg {
+  background:
+    radial-gradient(
+      120% 80% at 15% -10%,
+      color-mix(in oklch, var(--primary) 18%, transparent) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      90% 60% at 100% 0%,
+      color-mix(in oklch, var(--accent) 12%, transparent) 0%,
+      transparent 50%
+    ),
+    var(--background);
+}
+

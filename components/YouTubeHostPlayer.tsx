@@ -92,8 +92,13 @@ export function YouTubeHostPlayer({ videoId, onEnded }: Props) {
 
   return (
     <div
+      className="ring-primary/25 overflow-hidden rounded-2xl bg-black shadow-lg ring-2"
       ref={containerRef}
-      className="aspect-video w-full max-h-[40vh] overflow-hidden rounded-xl bg-black sm:max-h-[50vh]"
+      style={{
+        aspectRatio: "16 / 9",
+        maxHeight: "min(50vh, 28rem)",
+        width: "100%",
+      }}
     />
   );
 }
