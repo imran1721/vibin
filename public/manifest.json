@@ -1,0 +1,9 @@
+{
+  "name": "Jam — YouTube listening party",
+  "short_name": "Jam",
+  "description": "Host YouTube playback and let friends queue tracks together.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#d97706"
+}
