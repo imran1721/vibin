@@ -8,8 +8,11 @@ type Props = {
   disabled?: boolean;
 };
 
+/** `pe-*` reserves space for custom clear control (Safari hides native search cancel on dark UI). */
 const fieldClass =
-  "border-border bg-surface-elevated text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 w-full rounded-xl border px-3.5 py-2.5 text-[0.9375rem] outline-none transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-base";
+  "border-border bg-surface-elevated text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 w-full rounded-xl border py-2.5 pl-3.5 pr-3.5 text-[0.9375rem] outline-none transition-[box-shadow,background-color] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-base";
+
+const fieldClassWithClear = `${fieldClass} pe-11 sm:pe-12`;
 
 export function SearchYouTube({ onAdd, disabled }: Props) {
   const [q, setQ] = useState("");
@@ -58,25 +61,52 @@ export function SearchYouTube({ onAdd, disabled }: Props) {
   }, [debounced, runSearch]);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-3">
       <div>
         <label
           htmlFor="yt-search"
-          className="text-foreground mb-1 block text-sm font-semibold"
+          className="text-foreground mb-1.5 block text-sm font-semibold"
         >
           Search YouTube
         </label>
-        <input
-          id="yt-search"
-          type="search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Song, artist, or video…"
-          disabled={disabled}
-          className={fieldClass}
-          autoComplete="off"
-          enterKeyHint="search"
-        />
+        <div className="relative">
+          <input
+            id="yt-search"
+            type="text"
+            inputMode="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Song, artist, or video…"
+            disabled={disabled}
+            className={fieldClassWithClear}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            enterKeyHint="search"
+          />
+          {q.length > 0 ? (
+            <button
+              type="button"
+              className="text-muted-foreground hover:bg-muted/70 hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-1 flex min-w-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:right-1.5"
+              aria-label="Clear search"
+              onClick={() => setQ("")}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-5 shrink-0"
+                aria-hidden
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
       </div>
       {loading && (
         <p
@@ -92,7 +122,7 @@ export function SearchYouTube({ onAdd, disabled }: Props) {
         </p>
       )}
       <ul
-        className={`max-h-[min(46vh,18rem)] overflow-y-auto overscroll-y-contain rounded-xl sm:max-h-64 ${items.length > 0 ? "border-border border" : ""}`}
+        className={`max-h-[min(46vh,18rem)] overflow-y-auto overscroll-y-contain rounded-xl px-3 sm:px-3.5 sm:max-h-64 ${items.length > 0 ? "border-border border" : ""}`}
         aria-label="Search results"
       >
         {items.map((it) => (

@@ -52,9 +52,9 @@ export async function POST(request: NextRequest) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (memberError || member?.role !== "host") {
+  if (memberError || !member) {
     return NextResponse.json(
-      { error: "Only the host can import playlists" },
+      { error: "Join the room before importing playlists" },
       { status: 403 }
     );
   }
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
   } while (pageToken);
 
   if (mode === "replace") {
-    const { error: delError } = await supabase
+    const { error: delError } = await admin
       .from("queue_items")
       .delete()
       .eq("room_id", roomId);

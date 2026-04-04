@@ -16,6 +16,7 @@ import { getOrCreateDisplayName } from "@/lib/displayName";
 import type { QueueItem, YouTubeSearchItem } from "@/lib/types";
 import { YouTubeHostPlayer } from "@/components/YouTubeHostPlayer";
 import {
+  NowPlayingQueueRow,
   QueueList,
   type QueueListHandle,
 } from "@/components/QueueList";
@@ -82,7 +83,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [queueSectionOpen, setQueueSectionOpen] = useState(true);
   const [playlistSectionOpen, setPlaylistSectionOpen] = useState(true);
-  const [queuePinnedToTop, setQueuePinnedToTop] = useState(true);
+  /** Whether the now-playing row is inside the queue list’s scroll viewport (any scroll position). */
+  const [nowPlayingVisibleInQueueScroll, setNowPlayingVisibleInQueueScroll] =
+    useState(true);
   const [queueSectionInView, setQueueSectionInView] = useState(true);
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
@@ -90,8 +93,8 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   const hostTokenForRpc = hostToken ?? "";
 
-  const onQueuePinnedChange = useCallback((pinned: boolean) => {
-    setQueuePinnedToTop(pinned);
+  const onNowPlayingVisibleInQueueChange = useCallback((visible: boolean) => {
+    setNowPlayingVisibleInQueueScroll(visible);
   }, []);
 
   useEffect(() => {
@@ -503,7 +506,8 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const showGoToNowPlayingFab =
     hasNowPlaying &&
     queue.length > 0 &&
-    (!queueSectionOpen || !queueSectionInView || !queuePinnedToTop);
+    (!queueSectionInView ||
+      (queueSectionOpen && !nowPlayingVisibleInQueueScroll));
 
   return (
     <main className={shellMainClass}>
@@ -616,6 +620,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
               </button>
             ) : null}
           </div>
+          {!queueSectionOpen && nowPlaying ? (
+            <div
+              className="mt-3"
+              role="region"
+              aria-label="Now playing"
+            >
+              <NowPlayingQueueRow
+                item={nowPlaying}
+                playback={hasNowPlaying ? queuePlayback : undefined}
+              />
+            </div>
+          ) : null}
           <div
             id="queue-panel"
             role="region"
@@ -627,6 +643,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
           >
             <QueueList
               ref={queueListRef}
+              listPanelOpen={queueSectionOpen}
               items={queue}
               isHost={isHost}
               onRemove={handleRemove}
@@ -634,61 +651,61 @@ export function RoomClient({ roomId, hostToken }: Props) {
               onPlayItem={(id) => void handlePlayQueueItem(id)}
               playBusy={queueJumpBusy}
               playback={hasNowPlaying ? queuePlayback : undefined}
-              onPinnedChange={onQueuePinnedChange}
+              onNowPlayingVisibleInQueueChange={
+                onNowPlayingVisibleInQueueChange
+              }
             />
           </div>
         </section>
 
-        {isHost && (
-          <section
-            className="border-border border-t pt-3"
-            aria-labelledby="yt-pl-section-title"
+        <section
+          className="border-border border-t pt-3"
+          aria-labelledby="yt-pl-section-title"
+        >
+          <button
+            type="button"
+            id="yt-pl-section-title"
+            className={collapsibleTriggerClass}
+            aria-expanded={playlistSectionOpen}
+            aria-controls="yt-pl-panel"
+            onClick={() => setPlaylistSectionOpen((o) => !o)}
           >
-            <button
-              type="button"
-              id="yt-pl-section-title"
-              className={collapsibleTriggerClass}
-              aria-expanded={playlistSectionOpen}
-              aria-controls="yt-pl-panel"
-              onClick={() => setPlaylistSectionOpen((o) => !o)}
-            >
-              <CollapseChevron open={playlistSectionOpen} />
-              <span className="font-display text-base font-bold sm:text-lg">
-                Your YouTube playlists
-              </span>
-            </button>
-            <div
-              id="yt-pl-panel"
-              role="region"
-              aria-labelledby="yt-pl-section-title"
-              hidden={!playlistSectionOpen}
-              className={
-                playlistSectionOpen ? "mt-[2px] flex flex-col gap-2.5" : "hidden"
+            <CollapseChevron open={playlistSectionOpen} />
+            <span className="font-display text-base font-bold sm:text-lg">
+              YouTube playlists
+            </span>
+          </button>
+          <div
+            id="yt-pl-panel"
+            role="region"
+            aria-labelledby="yt-pl-section-title"
+            hidden={!playlistSectionOpen}
+            className={
+              playlistSectionOpen ? "mt-[2px] flex flex-col gap-2.5" : "hidden"
+            }
+          >
+            <p className="text-muted-foreground max-w-prose text-[0.7rem] leading-snug sm:text-xs">
+              Connect your Google account to list your playlists. Add tracks,
+              add an entire playlist, or replace the queue.
+            </p>
+            <Suspense
+              fallback={
+                <p className="text-muted-foreground text-xs">
+                  Loading playlists…
+                </p>
               }
             >
-              <p className="text-muted-foreground max-w-prose text-[0.7rem] leading-snug sm:text-xs">
-                Connect Google to list playlists. Add one track, add all, or
-                replace the queue.
-              </p>
-              <Suspense
-                fallback={
-                  <p className="text-muted-foreground text-xs">
-                    Loading playlists…
-                  </p>
-                }
-              >
-                <HostYoutubePlaylists
-                  roomId={roomId}
-                  omitSectionChrome
-                  onImported={() => {
-                    void loadQueue();
-                    void refreshPlaybackState();
-                  }}
-                />
-              </Suspense>
-            </div>
-          </section>
-        )}
+              <HostYoutubePlaylists
+                roomId={roomId}
+                omitSectionChrome
+                onImported={() => {
+                  void loadQueue();
+                  void refreshPlaybackState();
+                }}
+              />
+            </Suspense>
+          </div>
+        </section>
 
         {isHost ? (
           <>

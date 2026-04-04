@@ -395,7 +395,7 @@ export function HostYoutubePlaylists({
             id="yt-pl-heading"
             className="font-display text-foreground text-lg font-bold"
           >
-            Your YouTube playlists
+            YouTube playlists
           </h2>
           <p className="text-muted-foreground mt-1 text-[0.7rem] leading-snug sm:text-xs">
             Connect Google to list playlists from your account. Add one track,

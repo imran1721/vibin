@@ -22,6 +22,14 @@ export type QueuePlaybackControls = {
   onNext: () => void;
 };
 
+export type NowPlayingQueueRowProps = {
+  item: QueueItem;
+  playback?: QueuePlaybackControls;
+  className?: string;
+  /** Use `"li"` when this row sits inside the queue `<ul>`. */
+  renderAs?: "div" | "li";
+};
+
 export type QueueListHandle = {
   /** Scroll the list so the current track sits at the top of the queue viewport. */
   scrollCurrentToTop: () => void;
@@ -37,15 +45,82 @@ type Props = {
   playBusy?: boolean;
   /** Shown beside the “now playing” row for everyone in the room. */
   playback?: QueuePlaybackControls;
-  /** Fired when “current row pinned at top of list” changes (for global FAB). */
-  onPinnedChange?: (pinned: boolean) => void;
+  /** Fired when the now-playing row enters/leaves the queue scroll viewport (for “Go to now playing” FAB). */
+  onNowPlayingVisibleInQueueChange?: (visible: boolean) => void;
+  /** When false, the list is hidden (e.g. queue collapsed); visibility is reported as “in view” for FAB logic. */
+  listPanelOpen?: boolean;
 };
 
 const miniBtn =
-  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-md border text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:size-9 sm:rounded-lg";
+  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-md border leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:size-9 sm:rounded-lg";
 
 const miniPlayBtn =
-  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 min-w-[3rem] shrink-0 touch-manipulation items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-9 sm:min-w-[3.25rem] sm:rounded-lg sm:px-2";
+  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 min-w-[3rem] shrink-0 touch-manipulation items-center justify-center rounded-md border px-1.5 leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-9 sm:min-w-[3.25rem] sm:rounded-lg sm:px-2";
+
+const playbackGlyphClass =
+  "size-[1.0625rem] shrink-0 sm:size-[1.1875rem]";
+
+function IconPrevious() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={playbackGlyphClass}
+      aria-hidden
+    >
+      <path d="M5 5v14" />
+      <path d="M19 5 8 12l11 7V5z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconNext() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={playbackGlyphClass}
+      aria-hidden
+    >
+      <path d="M19 5v14" />
+      <path d="M5 5l11 7-11 7V5z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function IconPlay() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={playbackGlyphClass}
+      aria-hidden
+    >
+      <path d="M8 5v14l11-7-11-7z" />
+    </svg>
+  );
+}
+
+function IconPause() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={playbackGlyphClass}
+      aria-hidden
+    >
+      <path d="M6 5h3v14H6V5zm9 0h3v14h-3V5z" />
+    </svg>
+  );
+}
 
 function scrollCurrentRowToTop(
   container: HTMLElement,
@@ -58,12 +133,12 @@ function scrollCurrentRowToTop(
   container.scrollTo({ top: Math.max(0, nextTop), behavior });
 }
 
-/** True when the now-playing row is aligned to the top of the scroll viewport (same as auto-scroll). */
-function isNowPlayingPinned(container: HTMLElement, row: HTMLElement) {
+/** True when the now-playing row intersects the scroll container’s visible area (any scroll position). */
+function isNowPlayingVisibleInContainer(container: HTMLElement, row: HTMLElement) {
   const c = container.getBoundingClientRect();
   const t = row.getBoundingClientRect();
-  const dy = t.top - c.top;
-  return dy >= -8 && dy <= 24;
+  const margin = 8;
+  return t.bottom > c.top + margin && t.top < c.bottom - margin;
 }
 
 function NowPlayingPlayback({
@@ -97,7 +172,7 @@ function NowPlayingPlayback({
         title="Previous track"
         aria-label="Previous track"
       >
-        <span aria-hidden>⏮</span>
+        <IconPrevious />
       </button>
       {isPaused ? (
         <button
@@ -108,7 +183,7 @@ function NowPlayingPlayback({
           title="Play"
           aria-label="Play"
         >
-          ▶
+          <IconPlay />
         </button>
       ) : (
         <button
@@ -119,7 +194,7 @@ function NowPlayingPlayback({
           title="Pause"
           aria-label="Pause"
         >
-          ⏸
+          <IconPause />
         </button>
       )}
       <button
@@ -130,9 +205,55 @@ function NowPlayingPlayback({
         title="Next track"
         aria-label="Next track"
       >
-        <span aria-hidden>⏭</span>
+        <IconNext />
       </button>
     </div>
+  );
+}
+
+/** Current track card — same chrome as the “now playing” row inside the queue list. */
+export function NowPlayingQueueRow({
+  item,
+  playback,
+  className = "",
+  renderAs = "div",
+}: NowPlayingQueueRowProps) {
+  const Tag = renderAs;
+  return (
+    <Tag
+      data-queue-id={item.id}
+      className={`border-primary/45 flex min-h-12 flex-col items-stretch overflow-hidden rounded-xl border bg-primary/12 shadow-sm shadow-primary/10 transition-colors sm:flex-row ${className}`.trim()}
+    >
+      <div className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 sm:gap-3 sm:px-3.5">
+        {item.thumb_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.thumb_url}
+            alt=""
+            width={88}
+            height={50}
+            className="h-11 w-20 shrink-0 rounded-md object-cover sm:h-12 sm:w-[4.75rem] sm:rounded-lg"
+          />
+        ) : (
+          <div className="bg-muted h-11 w-20 shrink-0 rounded-md sm:h-12 sm:w-[4.75rem] sm:rounded-lg" />
+        )}
+        <div className="min-w-0 flex-1 py-0.5">
+          <p className="text-foreground truncate text-sm font-semibold leading-snug">
+            {item.title}
+          </p>
+          <p className="text-muted-foreground mt-0.5 text-xs">
+            <span className="text-primary font-semibold">Now playing</span>
+            {item.added_by ? (
+              <span className="text-muted-foreground">
+                {" "}
+                · {item.added_by}
+              </span>
+            ) : null}
+          </p>
+        </div>
+      </div>
+      {playback ? <NowPlayingPlayback playback={playback} /> : null}
+    </Tag>
   );
 }
 
@@ -145,26 +266,34 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
     onPlayItem,
     playBusy,
     playback,
-    onPinnedChange,
+    onNowPlayingVisibleInQueueChange,
+    listPanelOpen = true,
   },
   ref
 ) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastAlignedNowId = useRef<string | null>(null);
   const scrollRafRef = useRef<number | null>(null);
-  const lastPinnedNotified = useRef<boolean | null>(null);
+  const lastVisibleNotified = useRef<boolean | null>(null);
 
   const currentIndex = useMemo(() => {
     if (!nowPlayingId) return -1;
     return items.findIndex((q) => q.id === nowPlayingId);
   }, [items, nowPlayingId]);
 
-  const syncPinned = useCallback(() => {
+  const syncNowPlayingVisibility = useCallback(() => {
+    if (!listPanelOpen) {
+      if (lastVisibleNotified.current !== true) {
+        lastVisibleNotified.current = true;
+        onNowPlayingVisibleInQueueChange?.(true);
+      }
+      return;
+    }
     const container = scrollRef.current;
     if (!container || !nowPlayingId || items.length === 0) {
-      if (lastPinnedNotified.current !== true) {
-        lastPinnedNotified.current = true;
-        onPinnedChange?.(true);
+      if (lastVisibleNotified.current !== false) {
+        lastVisibleNotified.current = false;
+        onNowPlayingVisibleInQueueChange?.(false);
       }
       return;
     }
@@ -172,26 +301,31 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
       `[data-queue-id="${nowPlayingId}"]`
     );
     if (!target) {
-      if (lastPinnedNotified.current !== true) {
-        lastPinnedNotified.current = true;
-        onPinnedChange?.(true);
+      if (lastVisibleNotified.current !== false) {
+        lastVisibleNotified.current = false;
+        onNowPlayingVisibleInQueueChange?.(false);
       }
       return;
     }
-    const pinned = isNowPlayingPinned(container, target);
-    if (lastPinnedNotified.current !== pinned) {
-      lastPinnedNotified.current = pinned;
-      onPinnedChange?.(pinned);
+    const visible = isNowPlayingVisibleInContainer(container, target);
+    if (lastVisibleNotified.current !== visible) {
+      lastVisibleNotified.current = visible;
+      onNowPlayingVisibleInQueueChange?.(visible);
     }
-  }, [nowPlayingId, items.length, onPinnedChange]);
+  }, [
+    listPanelOpen,
+    nowPlayingId,
+    items.length,
+    onNowPlayingVisibleInQueueChange,
+  ]);
 
-  const scheduleSyncPinned = useCallback(() => {
+  const scheduleSyncNowPlayingVisibility = useCallback(() => {
     if (scrollRafRef.current != null) return;
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
-      syncPinned();
+      syncNowPlayingVisibility();
     });
-  }, [syncPinned]);
+  }, [syncNowPlayingVisibility]);
 
   const runScrollCurrentToTop = useCallback(() => {
     const container = scrollRef.current;
@@ -209,9 +343,9 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
       reduceMotion ? "auto" : "smooth"
     );
     requestAnimationFrame(() => {
-      requestAnimationFrame(syncPinned);
+      requestAnimationFrame(syncNowPlayingVisibility);
     });
-  }, [nowPlayingId, syncPinned]);
+  }, [nowPlayingId, syncNowPlayingVisibility]);
 
   useImperativeHandle(
     ref,
@@ -225,19 +359,19 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
 
   useEffect(() => {
     const id = requestAnimationFrame(() => {
-      syncPinned();
+      syncNowPlayingVisibility();
     });
     return () => cancelAnimationFrame(id);
-  }, [syncPinned]);
+  }, [syncNowPlayingVisibility]);
 
   useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
 
-    const onScroll = () => scheduleSyncPinned();
+    const onScroll = () => scheduleSyncNowPlayingVisibility();
     container.addEventListener("scroll", onScroll, { passive: true });
 
-    const ro = new ResizeObserver(() => scheduleSyncPinned());
+    const ro = new ResizeObserver(() => scheduleSyncNowPlayingVisibility());
     ro.observe(container);
 
     return () => {
@@ -248,7 +382,7 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
         scrollRafRef.current = null;
       }
     };
-  }, [scheduleSyncPinned]);
+  }, [scheduleSyncNowPlayingVisibility]);
 
   useLayoutEffect(() => {
     const container = scrollRef.current;
@@ -272,9 +406,9 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
     }
 
     requestAnimationFrame(() => {
-      requestAnimationFrame(syncPinned);
+      requestAnimationFrame(syncNowPlayingVisibility);
     });
-  }, [nowPlayingId, items, syncPinned]);
+  }, [nowPlayingId, items, syncNowPlayingVisibility]);
 
   if (items.length === 0) {
     return (
@@ -316,61 +450,30 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
                 <span>#{index + 1} in queue</span>
               );
 
+            if (isNow) {
+              return (
+                <NowPlayingQueueRow
+                  key={item.id}
+                  renderAs="li"
+                  item={item}
+                  playback={playback}
+                />
+              );
+            }
+
             return (
               <li
                 key={item.id}
                 data-queue-id={item.id}
-                className={`flex min-h-12 items-stretch overflow-hidden rounded-xl border transition-colors ${
-                  isNow
-                    ? "border-primary/45 flex-col bg-primary/12 shadow-sm shadow-primary/10 sm:flex-row"
-                    : "border-border flex-row bg-card hover:border-primary/25"
-                }`}
+                className="border-border flex min-h-12 flex-row items-stretch overflow-hidden rounded-xl border bg-card transition-colors hover:border-primary/25"
               >
-                {isNow ? (
-                  <>
-                    <div className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 sm:gap-3 sm:px-3.5">
-                      {item.thumb_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={item.thumb_url}
-                          alt=""
-                          width={88}
-                          height={50}
-                          className="h-11 w-20 shrink-0 rounded-md object-cover sm:h-12 sm:w-[4.75rem] sm:rounded-lg"
-                        />
-                      ) : (
-                        <div className="bg-muted h-11 w-20 shrink-0 rounded-md sm:h-12 sm:w-[4.75rem] sm:rounded-lg" />
-                      )}
-                      <div className="min-w-0 flex-1 py-0.5">
-                        <p className="text-foreground truncate text-sm font-semibold leading-snug">
-                          {item.title}
-                        </p>
-                        <p className="text-muted-foreground mt-0.5 text-xs">
-                          <span className="text-primary font-semibold">
-                            Now playing
-                          </span>
-                          {item.added_by ? (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              · {item.added_by}
-                            </span>
-                          ) : null}
-                        </p>
-                      </div>
-                    </div>
-                    {playback ? (
-                      <NowPlayingPlayback playback={playback} />
-                    ) : null}
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={playBusy}
-                      onClick={() => onPlayItem(item.id)}
-                      title="Play this track"
-                      className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-primary/5 active:bg-primary/10 sm:gap-3 sm:px-3.5 disabled:cursor-wait"
-                    >
+                <button
+                  type="button"
+                  disabled={playBusy}
+                  onClick={() => onPlayItem(item.id)}
+                  title="Play this track"
+                  className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left transition-colors hover:bg-primary/5 active:bg-primary/10 sm:gap-3 sm:px-3.5 disabled:cursor-wait"
+                >
                       {item.thumb_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -397,18 +500,16 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
                           ) : null}
                         </p>
                       </div>
-                    </button>
-                    {isHost && (
-                      <button
-                        type="button"
-                        disabled={playBusy}
-                        onClick={() => onRemove(item.id)}
-                        className="border-border text-muted-foreground hover:text-destructive focus-visible:ring-ring inline-flex min-h-12 shrink-0 items-center justify-center border-l px-2.5 text-xs font-semibold underline-offset-4 transition-colors hover:underline focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3.5"
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </>
+                </button>
+                {isHost && (
+                  <button
+                    type="button"
+                    disabled={playBusy}
+                    onClick={() => onRemove(item.id)}
+                    className="border-border text-muted-foreground hover:text-destructive focus-visible:ring-ring inline-flex min-h-12 shrink-0 items-center justify-center border-l px-2.5 text-xs font-semibold underline-offset-4 transition-colors hover:underline focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-3.5"
+                  >
+                    Remove
+                  </button>
                 )}
               </li>
             );
