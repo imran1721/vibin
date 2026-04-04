@@ -5,5 +5,25 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1c1412",
-  "theme_color": "#e8945c"
+  "theme_color": "#e8945c",
+  "icons": [
+    {
+      "src": "/icon/192",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon/512",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon/512",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ]
 }
