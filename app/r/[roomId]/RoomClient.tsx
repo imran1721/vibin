@@ -49,6 +49,17 @@ const headerToolbarClass =
 const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
+const GUEST_VIDEO_PREF_KEY = "vibin_guest_show_synced_video";
+
+function readGuestVideoPref(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(GUEST_VIDEO_PREF_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 const collapsibleTriggerClass =
   "text-foreground hover:bg-muted/50 focus-visible:ring-ring group flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pl-0.5 pr-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:gap-2 sm:pl-1";
 
@@ -136,6 +147,8 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [nowPlayingVisibleInQueueScroll, setNowPlayingVisibleInQueueScroll] =
     useState(true);
   const [queueSectionInView, setQueueSectionInView] = useState(true);
+  /** Guests only: load/sync YouTube on this device when true (opt-in). */
+  const [guestShowSyncedVideo, setGuestShowSyncedVideo] = useState(false);
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
@@ -146,6 +159,19 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   const onNowPlayingVisibleInQueueChange = useCallback((visible: boolean) => {
     setNowPlayingVisibleInQueueScroll(visible);
+  }, []);
+
+  useEffect(() => {
+    setGuestShowSyncedVideo(readGuestVideoPref());
+  }, []);
+
+  const setGuestVideoPref = useCallback((show: boolean) => {
+    setGuestShowSyncedVideo(show);
+    try {
+      window.sessionStorage.setItem(GUEST_VIDEO_PREF_KEY, show ? "1" : "0");
+    } catch {
+      /* private mode */
+    }
   }, []);
 
   useEffect(() => {
@@ -503,6 +529,20 @@ export function RoomClient({ roomId, hostToken }: Props) {
     [roomId, hostTokenForRpc, refreshPlaybackState]
   );
 
+  const reportIframePausePlay = useCallback(
+    async (paused: boolean, anchorSeconds: number) => {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("playback_set_paused", {
+        p_room_id: roomId,
+        p_paused: paused,
+        p_anchor_sec: Math.max(0, anchorSeconds),
+      });
+      if (error) console.error(error);
+      await refreshPlaybackState();
+    },
+    [roomId, refreshPlaybackState]
+  );
+
   useEffect(() => {
     if (!ready || !isHost) return;
     if (!nowPlaying?.video_id || playbackPaused) return;
@@ -754,6 +794,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
                 isHost
                 onHostVideoEnded={advanceToNextTrack}
                 onPlaybackScrub={reportIframeSeek}
+                onIframePausePlay={reportIframePausePlay}
               />
               <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
                 Playback runs on this device. Everyone sees the same video in sync;
@@ -761,20 +802,61 @@ export function RoomClient({ roomId, hostToken }: Props) {
               </p>
             </section>
           ) : hasNowPlaying ? (
-            <section className="flex flex-col gap-2" aria-label="Synced playback">
-              <YouTubeSyncPlayer
-                videoId={nowPlaying.video_id}
-                remotePaused={playbackPaused}
-                anchorSec={playbackAnchorSec}
-                anchorAtIso={playbackAnchorAt}
-                isHost={false}
-                onHostVideoEnded={() => {}}
-                onPlaybackScrub={reportIframeSeek}
-              />
-              <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
-                Same video as the host, kept in sync. Prefer listening on the
-                host speaker; preview is muted by default.
-              </p>
+            <section
+              className="flex flex-col gap-2"
+              aria-labelledby="guest-playback-heading"
+            >
+              <h2 id="guest-playback-heading" className="sr-only">
+                {guestShowSyncedVideo
+                  ? "Synced video on this device"
+                  : "Now playing"}
+              </h2>
+              {guestShowSyncedVideo ? (
+                <>
+                  <YouTubeSyncPlayer
+                    videoId={nowPlaying.video_id}
+                    remotePaused={playbackPaused}
+                    anchorSec={playbackAnchorSec}
+                    anchorAtIso={playbackAnchorAt}
+                    isHost={false}
+                    onHostVideoEnded={() => {}}
+                    onPlaybackScrub={reportIframeSeek}
+                    onIframePausePlay={reportIframePausePlay}
+                  />
+                  <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
+                    Same video as the host, kept in sync. Prefer the host’s
+                    speaker for audio; preview is muted by default.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setGuestVideoPref(false)}
+                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring mx-auto min-h-10 rounded-lg px-3 py-2 text-center text-xs font-semibold underline underline-offset-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-sm"
+                  >
+                    Hide video on this device
+                  </button>
+                </>
+              ) : (
+                <div className="border-border bg-card/70 flex flex-col gap-2.5 rounded-2xl border px-4 py-3.5">
+                  <p className="text-foreground text-sm font-semibold">
+                    Now playing
+                  </p>
+                  <p className="text-foreground line-clamp-2 text-base font-medium leading-snug">
+                    {nowPlaying.title}
+                  </p>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Watching here is optional. Use the queue controls below to
+                    skip or seek for everyone, or turn on video if you want the
+                    synced picture on this phone (uses more data and battery).
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setGuestVideoPref(true)}
+                    className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  >
+                    Show synced video on this device
+                  </button>
+                </div>
+              )}
             </section>
           ) : null}
 

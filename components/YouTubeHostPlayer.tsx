@@ -27,6 +27,10 @@ type Props = {
    * clock, publish the new time (debounced). Same callback for host and guests.
    */
   onPlaybackScrub?: (seconds: number) => void;
+  /**
+   * Host or guest used the iframe play/pause control; sync room state + anchor time.
+   */
+  onIframePausePlay?: (paused: boolean, anchorSeconds: number) => void;
 };
 
 let iframeApiPromise: Promise<void> | null = null;
@@ -59,6 +63,8 @@ const IFRAME_SCRUB_PAUSED = 1.5;
 const IFRAME_SCRUB_DEBOUNCE_MS = 320;
 const GUEST_DRIFT_INTERVAL_MS = 900;
 const GUEST_DRIFT_THRESHOLD = 2;
+/** Ignore iframe pause/play callbacks right after we drive the player from DB. */
+const SUPPRESS_IFRAME_PAUSE_MS = 280;
 
 export const YouTubeSyncPlayer = forwardRef<
   YouTubeSyncPlayerHandle,
@@ -72,6 +78,7 @@ export const YouTubeSyncPlayer = forwardRef<
     isHost,
     onHostVideoEnded,
     onPlaybackScrub,
+    onIframePausePlay,
   },
   ref
 ) {
@@ -79,6 +86,9 @@ export const YouTubeSyncPlayer = forwardRef<
   const playerRef = useRef<YT.Player | null>(null);
   const onEndedRef = useRef(onHostVideoEnded);
   const onPlaybackScrubRef = useRef(onPlaybackScrub);
+  const onIframePausePlayRef = useRef(onIframePausePlay);
+  const suppressProgrammaticPausePlayRef = useRef(false);
+  const iframeIgnoreUntilRef = useRef(0);
   const remotePausedRef = useRef(remotePaused);
   const prevYtStateRef = useRef<number>(-1);
   const lastNaturalEndedAtRef = useRef(0);
@@ -95,6 +105,10 @@ export const YouTubeSyncPlayer = forwardRef<
   useEffect(() => {
     onPlaybackScrubRef.current = onPlaybackScrub;
   }, [onPlaybackScrub]);
+
+  useEffect(() => {
+    onIframePausePlayRef.current = onIframePausePlay;
+  }, [onIframePausePlay]);
 
   useEffect(() => {
     remotePausedRef.current = remotePaused;
@@ -154,23 +168,46 @@ export const YouTubeSyncPlayer = forwardRef<
             setPlayerReady(true);
           },
           onStateChange: (e) => {
-            if (!isHost) return;
-            const prev = prevYtStateRef.current;
-            prevYtStateRef.current = e.data;
+            if (isHost) {
+              const prev = prevYtStateRef.current;
+              prevYtStateRef.current = e.data;
 
-            if (e.data !== YT.PlayerState.ENDED) return;
-
-            const wasActive =
-              prev === YT.PlayerState.PLAYING ||
-              prev === YT.PlayerState.BUFFERING;
-            if (!wasActive) return;
-
-            const now = Date.now();
-            if (now - lastNaturalEndedAtRef.current < NATURAL_END_DEBOUNCE_MS) {
-              return;
+              if (e.data === YT.PlayerState.ENDED) {
+                const wasActive =
+                  prev === YT.PlayerState.PLAYING ||
+                  prev === YT.PlayerState.BUFFERING;
+                if (wasActive) {
+                  const now = Date.now();
+                  if (
+                    now - lastNaturalEndedAtRef.current >=
+                    NATURAL_END_DEBOUNCE_MS
+                  ) {
+                    lastNaturalEndedAtRef.current = now;
+                    onEndedRef.current();
+                  }
+                }
+              }
+            } else {
+              prevYtStateRef.current = e.data;
             }
-            lastNaturalEndedAtRef.current = now;
-            onEndedRef.current();
+
+            const cb = onIframePausePlayRef.current;
+            if (!cb) return;
+            if (Date.now() < iframeIgnoreUntilRef.current) return;
+            if (suppressProgrammaticPausePlayRef.current) return;
+
+            const pl = playerRef.current;
+            const t = pl?.getCurrentTime?.() ?? 0;
+
+            if (e.data === YT.PlayerState.PAUSED) {
+              if (!remotePausedRef.current) {
+                cb(true, Math.max(0, t));
+              }
+            } else if (e.data === YT.PlayerState.PLAYING) {
+              if (remotePausedRef.current) {
+                cb(false, Math.max(0, t));
+              }
+            }
           },
         },
       });
@@ -200,13 +237,18 @@ export const YouTubeSyncPlayer = forwardRef<
         pausedRef.current
       )
     );
+    iframeIgnoreUntilRef.current = Date.now() + 900;
     playerRef.current.loadVideoById({
       videoId,
       startSeconds: Math.max(0, start),
     });
     if (pausedRef.current) {
       const t = window.setTimeout(() => {
+        suppressProgrammaticPausePlayRef.current = true;
         playerRef.current?.pauseVideo();
+        window.setTimeout(() => {
+          suppressProgrammaticPausePlayRef.current = false;
+        }, SUPPRESS_IFRAME_PAUSE_MS);
       }, 500);
       return () => window.clearTimeout(t);
     }
@@ -214,8 +256,15 @@ export const YouTubeSyncPlayer = forwardRef<
 
   useEffect(() => {
     if (!playerReady || !playerRef.current || !videoId) return;
-    if (remotePaused) playerRef.current.pauseVideo();
-    else playerRef.current.playVideo();
+    suppressProgrammaticPausePlayRef.current = true;
+    try {
+      if (remotePaused) playerRef.current.pauseVideo();
+      else playerRef.current.playVideo();
+    } finally {
+      window.setTimeout(() => {
+        suppressProgrammaticPausePlayRef.current = false;
+      }, SUPPRESS_IFRAME_PAUSE_MS);
+    }
   }, [playerReady, videoId, remotePaused]);
 
   const prevAnchorKeyRef = useRef("");
@@ -232,8 +281,15 @@ export const YouTubeSyncPlayer = forwardRef<
     const target = effectivePlaybackSec(anchorSec, anchorAtIso, remotePaused);
     const cur = playerRef.current.getCurrentTime?.() ?? 0;
     if (Math.abs(cur - target) < REMOTE_SYNC_MIN_DIFF) return;
-    playerRef.current.seekTo(target, true);
-    if (remotePaused) playerRef.current.pauseVideo();
+    suppressProgrammaticPausePlayRef.current = true;
+    try {
+      playerRef.current.seekTo(target, true);
+      if (remotePaused) playerRef.current.pauseVideo();
+    } finally {
+      window.setTimeout(() => {
+        suppressProgrammaticPausePlayRef.current = false;
+      }, SUPPRESS_IFRAME_PAUSE_MS);
+    }
   }, [playerReady, videoId, anchorSec, anchorAtIso, remotePaused]);
 
   /** Detect seeks via the embedded YouTube progress bar (not exposed as events). */
