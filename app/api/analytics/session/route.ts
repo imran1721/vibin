@@ -71,6 +71,23 @@ export async function POST(request: Request) {
         ? Math.round(Math.min(Math.max(body.screenHeight, 0), 99999))
         : null;
 
+    const { data: openRow } = await admin
+      .from("analytics_sessions")
+      .select("id")
+      .eq("client_session_id", clientSessionId)
+      .is("ended_at", null)
+      .order("started_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (openRow?.id) {
+      return NextResponse.json({
+        ok: true,
+        id: openRow.id,
+        resumed: true,
+      });
+    }
+
     const { data, error } = await admin
       .from("analytics_sessions")
       .insert({
@@ -86,6 +103,23 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
+      if (error.code === "23505") {
+        const { data: afterRace } = await admin
+          .from("analytics_sessions")
+          .select("id")
+          .eq("client_session_id", clientSessionId)
+          .is("ended_at", null)
+          .order("started_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (afterRace?.id) {
+          return NextResponse.json({
+            ok: true,
+            id: afterRace.id,
+            resumed: true,
+          });
+        }
+      }
       console.error("[analytics/session] insert", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

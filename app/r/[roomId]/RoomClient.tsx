@@ -754,16 +754,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
             )}
           </div>
           <div className={headerToolbarClass}>
-            {isHost && (
-              <button
-                type="button"
-                onClick={openGuestInvite}
-                className={headerToolbarBtnClass}
-                title="QR code and share link for guests (without host key)"
-              >
-                Invite
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={openGuestInvite}
+              className={headerToolbarBtnClass}
+              title={
+                isHost
+                  ? "QR code and guest link (no host controls)"
+                  : "QR code and link to invite more guests"
+              }
+            >
+              Invite
+            </button>
             <Link href="/" className={`${headerToolbarBtnClass} no-underline`}>
               Home
             </Link>
@@ -979,7 +981,6 @@ export function RoomClient({ roomId, hostToken }: Props) {
           </section>
 
           {isHost ? (
-          <>
             <ConfirmDialog
               open={clearConfirmOpen}
               onOpenChange={setClearConfirmOpen}
@@ -990,13 +991,12 @@ export function RoomClient({ roomId, hostToken }: Props) {
               busy={clearQueueBusy}
               destructive
             />
-            <GuestInviteDialog
-              open={inviteOpen}
-              onOpenChange={setInviteOpen}
-              url={guestInviteUrl}
-            />
-          </>
           ) : null}
+          <GuestInviteDialog
+            open={inviteOpen}
+            onOpenChange={setInviteOpen}
+            url={guestInviteUrl}
+          />
         </div>
       </div>
 

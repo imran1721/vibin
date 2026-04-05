@@ -65,6 +65,8 @@ const GUEST_DRIFT_INTERVAL_MS = 900;
 const GUEST_DRIFT_THRESHOLD = 2;
 /** Ignore iframe pause/play callbacks right after we drive the player from DB. */
 const SUPPRESS_IFRAME_PAUSE_MS = 280;
+/** YouTube often ignores startSeconds until after cue; re-seek after load (guest opt-in, track change). */
+const POST_LOAD_SYNC_MS = [380, 1100] as const;
 
 export const YouTubeSyncPlayer = forwardRef<
   YouTubeSyncPlayerHandle,
@@ -242,16 +244,58 @@ export const YouTubeSyncPlayer = forwardRef<
       videoId,
       startSeconds: Math.max(0, start),
     });
-    if (pausedRef.current) {
-      const t = window.setTimeout(() => {
-        suppressProgrammaticPausePlayRef.current = true;
-        playerRef.current?.pauseVideo();
+
+    /** `playVideo()` right after load often snaps to 0; fix once the player has cued. */
+    const syncToRoomTimeline = () => {
+      const p = playerRef.current;
+      if (!p) return;
+      const target = effectivePlaybackSec(
+        anchorSecRef.current,
+        anchorAtRef.current,
+        pausedRef.current
+      );
+      const cur = p.getCurrentTime?.() ?? 0;
+      if (Math.abs(cur - target) < 0.85) return;
+      suppressProgrammaticPausePlayRef.current = true;
+      try {
+        p.seekTo(target, true);
+        if (pausedRef.current) p.pauseVideo();
+        else p.playVideo();
+      } finally {
         window.setTimeout(() => {
           suppressProgrammaticPausePlayRef.current = false;
         }, SUPPRESS_IFRAME_PAUSE_MS);
-      }, 500);
-      return () => window.clearTimeout(t);
+      }
+    };
+
+    const postLoadTimers = POST_LOAD_SYNC_MS.map((ms) =>
+      window.setTimeout(syncToRoomTimeline, ms)
+    );
+
+    if (pausedRef.current) {
+      const t = window.setTimeout(() => {
+        const p = playerRef.current;
+        if (!p) return;
+        const target = effectivePlaybackSec(
+          anchorSecRef.current,
+          anchorAtRef.current,
+          true
+        );
+        suppressProgrammaticPausePlayRef.current = true;
+        p.seekTo(target, true);
+        p.pauseVideo();
+        window.setTimeout(() => {
+          suppressProgrammaticPausePlayRef.current = false;
+        }, SUPPRESS_IFRAME_PAUSE_MS);
+      }, 520);
+      return () => {
+        for (const id of postLoadTimers) window.clearTimeout(id);
+        window.clearTimeout(t);
+      };
     }
+    return () => {
+      for (const id of postLoadTimers) window.clearTimeout(id);
+    };
   }, [playerReady, videoId]);
 
   useEffect(() => {

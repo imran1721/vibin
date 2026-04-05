@@ -1,20 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import { getOrCreateAnalyticsClientId } from "@/lib/analytics-client-id";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-
-let moduleSessionId: string | null = null;
-let moduleStartPosted = false;
-
-function getModuleSessionId(): string {
-  if (typeof window === "undefined") return "";
-  if (!moduleSessionId) moduleSessionId = crypto.randomUUID();
-  return moduleSessionId;
-}
 
 export function AnalyticsSession() {
   useEffect(() => {
-    const clientSessionId = getModuleSessionId();
+    const clientSessionId = getOrCreateAnalyticsClientId();
     if (!clientSessionId) return;
 
     let ended = false;
@@ -36,8 +28,6 @@ export function AnalyticsSession() {
     };
 
     const runStart = async () => {
-      if (moduleStartPosted) return;
-      moduleStartPosted = true;
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const w = window.screen?.width;
       const h = window.screen?.height;
