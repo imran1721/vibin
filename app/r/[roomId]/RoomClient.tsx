@@ -30,6 +30,7 @@ import { GuestInviteDialog } from "@/components/GuestInviteDialog";
 import { VibinMark } from "@/components/VibinMark";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
+import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
 
 type Props = {
   roomId: string;
@@ -149,8 +150,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [queueSectionInView, setQueueSectionInView] = useState(true);
   /** Guests only: load/sync YouTube on this device when true (opt-in). */
   const [guestShowSyncedVideo, setGuestShowSyncedVideo] = useState(false);
+  const [guestCount, setGuestCount] = useState(0);
+  const [joinToastMessage, setJoinToastMessage] = useState<string | null>(
+    null
+  );
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
+  const currentUserIdRef = useRef<string | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
@@ -205,6 +211,22 @@ export function RoomClient({ roomId, hostToken }: Props) {
     }
     setQueue((data ?? []) as QueueItem[]);
   }, [roomId]);
+
+  const loadRoomPresence = useCallback(async () => {
+    const supabase = getSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("room_members")
+      .select("user_id, role")
+      .eq("room_id", roomId);
+    if (error) {
+      console.error(error);
+      return;
+    }
+    const guests = (data ?? []).filter((r) => r.role === "guest").length;
+    setGuestCount(guests);
+  }, [roomId]);
+
+  const dismissJoinToast = useCallback(() => setJoinToastMessage(null), []);
 
   const refreshPlaybackState = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -305,8 +327,14 @@ export function RoomClient({ roomId, hostToken }: Props) {
       const host = await checkHostRole();
       if (!cancelled) setIsHost(host);
 
+      const {
+        data: { user: joinedUser },
+      } = await supabase.auth.getUser();
+      currentUserIdRef.current = joinedUser?.id ?? null;
+
       await loadQueue();
       await refreshPlaybackState();
+      await loadRoomPresence();
 
       channel = supabase
         .channel(`room:${roomId}`)
@@ -332,6 +360,31 @@ export function RoomClient({ roomId, hostToken }: Props) {
             void refreshPlaybackState();
           }
         )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "room_members",
+            filter: `room_id=eq.${roomId}`,
+          },
+          (payload) => {
+            void loadRoomPresence();
+            if (payload.eventType === "INSERT") {
+              const row = payload.new as {
+                user_id?: string;
+                role?: string;
+              };
+              if (
+                row.role === "guest" &&
+                row.user_id &&
+                row.user_id !== currentUserIdRef.current
+              ) {
+                setJoinToastMessage("A guest joined the room");
+              }
+            }
+          }
+        )
         .subscribe();
 
       if (!cancelled) setReady(true);
@@ -351,6 +404,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
     roomId,
     hostToken,
     loadQueue,
+    loadRoomPresence,
     checkHostRole,
     refreshPlaybackState,
   ]);
@@ -754,6 +808,14 @@ export function RoomClient({ roomId, hostToken }: Props) {
             )}
           </div>
           <div className={headerToolbarClass}>
+            {ready ? (
+              <span
+                className="text-muted-foreground border-border/60 max-w-[4.75rem] shrink-0 truncate border-r px-1.5 text-center text-[0.6rem] font-semibold sm:max-w-none sm:px-3 sm:text-xs"
+                title={`${guestCount} guest${guestCount === 1 ? "" : "s"} in this session`}
+              >
+                {guestCount}&nbsp;{guestCount === 1 ? "guest" : "guests"}
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={openGuestInvite}
@@ -772,6 +834,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
           </div>
         </div>
       </header>
+
+      {ready ? (
+        <RoomGuestJoinToast
+          message={joinToastMessage}
+          onDismiss={dismissJoinToast}
+        />
+      ) : null}
 
       <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
