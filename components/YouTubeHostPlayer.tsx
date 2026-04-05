@@ -1,12 +1,27 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
+import { effectivePlaybackSec } from "@/lib/playback-sync";
+
+export type YouTubeSyncPlayerHandle = {
+  getCurrentTime: () => number | null;
+};
 
 type Props = {
   videoId: string | null;
-  onEnded: () => void;
-  /** Synced from DB — guests use RPC; host uses YouTube’s own play/pause UI */
   remotePaused: boolean;
+  anchorSec: number;
+  /** ISO timestamp from `rooms.playback_anchor_at`. */
+  anchorAtIso: string;
+  /** Only the host advances the queue when a video ends naturally. */
+  isHost: boolean;
+  onHostVideoEnded: () => void;
 };
 
 let iframeApiPromise: Promise<void> | null = null;
@@ -31,28 +46,58 @@ function loadIframeApi(): Promise<void> {
 }
 
 const NATURAL_END_DEBOUNCE_MS = 900;
+const BIG_SEEK_THRESHOLD = 4;
+const DRIFT_THRESHOLD = 2;
 
-export function YouTubeHostPlayer({
-  videoId,
-  onEnded,
-  remotePaused,
-}: Props) {
+export const YouTubeSyncPlayer = forwardRef<
+  YouTubeSyncPlayerHandle,
+  Props
+>(function YouTubeSyncPlayer(
+  {
+    videoId,
+    remotePaused,
+    anchorSec,
+    anchorAtIso,
+    isHost,
+    onHostVideoEnded,
+  },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YT.Player | null>(null);
-  const onEndedRef = useRef(onEnded);
+  const onEndedRef = useRef(onHostVideoEnded);
   const remotePausedRef = useRef(remotePaused);
-  /** Previous YT player state, for ignoring spurious ENDED (e.g. during loadVideoById). */
   const prevYtStateRef = useRef<number>(-1);
   const lastNaturalEndedAtRef = useRef(0);
+  const anchorSecRef = useRef(anchorSec);
+  const anchorAtRef = useRef(anchorAtIso);
+  const pausedRef = useRef(remotePaused);
   const [playerReady, setPlayerReady] = useState(false);
+  const [guestUnmuted, setGuestUnmuted] = useState(false);
 
   useEffect(() => {
-    onEndedRef.current = onEnded;
-  }, [onEnded]);
+    onEndedRef.current = onHostVideoEnded;
+  }, [onHostVideoEnded]);
 
   useEffect(() => {
     remotePausedRef.current = remotePaused;
   }, [remotePaused]);
+
+  useEffect(() => {
+    anchorSecRef.current = anchorSec;
+  }, [anchorSec]);
+
+  useEffect(() => {
+    anchorAtRef.current = anchorAtIso;
+  }, [anchorAtIso]);
+
+  useEffect(() => {
+    pausedRef.current = remotePaused;
+  }, [remotePaused]);
+
+  useImperativeHandle(ref, () => ({
+    getCurrentTime: () => playerRef.current?.getCurrentTime?.() ?? null,
+  }));
 
   useEffect(() => {
     prevYtStateRef.current = window.YT?.PlayerState?.UNSTARTED ?? -1;
@@ -82,6 +127,7 @@ export function YouTubeHostPlayer({
           playsinline: 1,
           rel: 0,
           modestbranding: 1,
+          ...(isHost ? {} : { mute: 1 }),
           ...(origin ? { origin } : {}),
         },
         events: {
@@ -91,6 +137,7 @@ export function YouTubeHostPlayer({
             setPlayerReady(true);
           },
           onStateChange: (e) => {
+            if (!isHost) return;
             const prev = prevYtStateRef.current;
             prevYtStateRef.current = e.data;
 
@@ -121,31 +168,77 @@ export function YouTubeHostPlayer({
       playerRef.current = null;
       if (outer) outer.innerHTML = "";
     };
-  }, []);
+  }, [isHost]);
 
   useEffect(() => {
     if (!playerReady || !playerRef.current) return;
-    if (videoId) {
-      playerRef.current.loadVideoById(videoId);
-      if (remotePausedRef.current) {
-        const t = window.setTimeout(() => {
-          playerRef.current?.pauseVideo();
-        }, 400);
-        return () => window.clearTimeout(t);
-      }
-    } else {
+    if (!videoId) {
       playerRef.current.stopVideo();
+      return;
+    }
+    const start = Math.floor(
+      effectivePlaybackSec(
+        anchorSecRef.current,
+        anchorAtRef.current,
+        pausedRef.current
+      )
+    );
+    playerRef.current.loadVideoById({
+      videoId,
+      startSeconds: Math.max(0, start),
+    });
+    if (pausedRef.current) {
+      const t = window.setTimeout(() => {
+        playerRef.current?.pauseVideo();
+      }, 500);
+      return () => window.clearTimeout(t);
     }
   }, [playerReady, videoId]);
 
   useEffect(() => {
     if (!playerReady || !playerRef.current || !videoId) return;
-    if (remotePaused) {
-      playerRef.current.pauseVideo();
-    } else {
-      playerRef.current.playVideo();
-    }
+    if (remotePaused) playerRef.current.pauseVideo();
+    else playerRef.current.playVideo();
   }, [playerReady, videoId, remotePaused]);
+
+  useEffect(() => {
+    if (!playerReady || !playerRef.current || !videoId) return;
+    const target = effectivePlaybackSec(
+      anchorSec,
+      anchorAtIso,
+      remotePaused
+    );
+    const cur = playerRef.current.getCurrentTime?.() ?? 0;
+    if (Math.abs(cur - target) > BIG_SEEK_THRESHOLD) {
+      playerRef.current.seekTo(target, true);
+    }
+  }, [playerReady, videoId, anchorSec, anchorAtIso, remotePaused]);
+
+  useEffect(() => {
+    if (!playerReady || !playerRef.current || !videoId || remotePaused) return;
+    const id = window.setInterval(() => {
+      const target = effectivePlaybackSec(
+        anchorSecRef.current,
+        anchorAtRef.current,
+        false
+      );
+      const cur = playerRef.current?.getCurrentTime?.() ?? 0;
+      if (Math.abs(cur - target) > DRIFT_THRESHOLD) {
+        playerRef.current?.seekTo(target, true);
+      }
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [playerReady, videoId, remotePaused]);
+
+  useEffect(() => {
+    if (!playerReady || !playerRef.current || isHost) return;
+    try {
+      if (guestUnmuted) playerRef.current.unMute();
+      else playerRef.current.mute();
+    } catch {
+      /* ignore */
+    }
+  }, [playerReady, guestUnmuted, isHost, videoId]);
 
   return (
     <div
@@ -156,6 +249,20 @@ export function YouTubeHostPlayer({
       }}
     >
       <div className="h-full w-full" ref={containerRef} />
+      {!isHost && videoId ? (
+        <button
+          type="button"
+          onClick={() => setGuestUnmuted((u) => !u)}
+          className="border-border/80 bg-background/85 text-foreground hover:bg-background focus-visible:ring-ring absolute bottom-2 right-2 z-10 rounded-lg border px-2.5 py-1 text-[0.65rem] font-semibold shadow-sm backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-xs"
+        >
+          {guestUnmuted ? "Mute preview" : "Unmute preview"}
+        </button>
+      ) : null}
     </div>
   );
-}
+});
+
+YouTubeSyncPlayer.displayName = "YouTubeSyncPlayer";
+
+/** @deprecated Prefer `YouTubeSyncPlayer`; name kept for imports. */
+export const YouTubeHostPlayer = YouTubeSyncPlayer;

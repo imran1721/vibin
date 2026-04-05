@@ -20,6 +20,8 @@ export type QueuePlaybackControls = {
   onPlay: () => void;
   onPause: () => void;
   onNext: () => void;
+  /** Relative seek in seconds (e.g. −10 / +10); synced for everyone in the room. */
+  onSeekDelta?: (deltaSec: number) => void;
 };
 
 export type NowPlayingQueueRowProps = {
@@ -154,12 +156,13 @@ function NowPlayingPlayback({
     onPlay,
     onPause,
     onNext,
+    onSeekDelta,
   } = playback;
   const d = busy || !hasNowPlaying;
 
   return (
     <div
-      className="border-border bg-background/70 flex shrink-0 items-center justify-center gap-0.5 border-t px-1.5 py-1.5 sm:border-l sm:border-t-0 sm:px-2 sm:py-2"
+      className="border-border bg-background/70 flex shrink-0 flex-wrap items-center justify-center gap-0.5 border-t px-1.5 py-1.5 sm:border-l sm:border-t-0 sm:px-2 sm:py-2"
       role="group"
       aria-label="Playback controls"
     >
@@ -173,6 +176,18 @@ function NowPlayingPlayback({
       >
         <IconPrevious />
       </button>
+      {onSeekDelta ? (
+        <button
+          type="button"
+          className={`${miniBtn} min-w-[2.75rem] text-[0.65rem] font-bold sm:min-w-12 sm:text-xs`}
+          disabled={d}
+          onClick={() => onSeekDelta(-10)}
+          title="Back 10 seconds"
+          aria-label="Back 10 seconds"
+        >
+          −10s
+        </button>
+      ) : null}
       {isPaused ? (
         <button
           type="button"
@@ -196,6 +211,18 @@ function NowPlayingPlayback({
           <IconPause />
         </button>
       )}
+      {onSeekDelta ? (
+        <button
+          type="button"
+          className={`${miniBtn} min-w-[2.75rem] text-[0.65rem] font-bold sm:min-w-12 sm:text-xs`}
+          disabled={d}
+          onClick={() => onSeekDelta(10)}
+          title="Forward 10 seconds"
+          aria-label="Forward 10 seconds"
+        >
+          +10s
+        </button>
+      ) : null}
       <button
         type="button"
         className={miniBtn}

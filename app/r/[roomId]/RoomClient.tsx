@@ -14,7 +14,11 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import { getOrCreateDisplayName } from "@/lib/displayName";
 import type { QueueItem, YouTubeSearchItem } from "@/lib/types";
-import { YouTubeHostPlayer } from "@/components/YouTubeHostPlayer";
+import {
+  YouTubeSyncPlayer,
+  type YouTubeSyncPlayerHandle,
+} from "@/components/YouTubeHostPlayer";
+import { effectivePlaybackSec } from "@/lib/playback-sync";
 import {
   NowPlayingQueueRow,
   QueueList,
@@ -115,6 +119,10 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [guestInviteUrl, setGuestInviteUrl] = useState("");
   const [inviteOpen, setInviteOpen] = useState(false);
   const [playbackPaused, setPlaybackPaused] = useState(false);
+  const [playbackAnchorSec, setPlaybackAnchorSec] = useState(0);
+  const [playbackAnchorAt, setPlaybackAnchorAt] = useState(() =>
+    new Date().toISOString()
+  );
   const [playbackCurrentItemId, setPlaybackCurrentItemId] = useState<
     string | null
   >(null);
@@ -132,6 +140,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
+  const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
 
   const hostTokenForRpc = hostToken ?? "";
 
@@ -175,7 +184,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
       .from("rooms")
-      .select("playback_paused, playback_current_item_id")
+      .select(
+        "playback_paused, playback_current_item_id, playback_anchor_sec, playback_anchor_at"
+      )
       .eq("id", roomId)
       .maybeSingle();
     if (error) {
@@ -185,6 +196,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
     if (data) {
       setPlaybackPaused(!!data.playback_paused);
       setPlaybackCurrentItemId(data.playback_current_item_id ?? null);
+      setPlaybackAnchorSec(Number(data.playback_anchor_sec ?? 0));
+      const at = data.playback_anchor_at as string | null;
+      setPlaybackAnchorAt(
+        at && !Number.isNaN(Date.parse(at))
+          ? at
+          : new Date().toISOString()
+      );
     }
   }, [roomId]);
 
@@ -403,10 +421,21 @@ export function RoomClient({ roomId, hostToken }: Props) {
     async (paused: boolean) => {
       setControlsBusy(true);
       try {
+        const fromPlayer = syncPlayerRef.current?.getCurrentTime();
+        const fromClock = effectivePlaybackSec(
+          playbackAnchorSec,
+          playbackAnchorAt,
+          playbackPaused
+        );
+        const anchor =
+          fromPlayer != null && Number.isFinite(fromPlayer)
+            ? fromPlayer
+            : fromClock;
         const supabase = getSupabaseBrowserClient();
         const { error } = await supabase.rpc("playback_set_paused", {
           p_room_id: roomId,
           p_paused: paused,
+          p_anchor_sec: anchor,
         });
         if (error) console.error(error);
         await refreshPlaybackState();
@@ -414,8 +443,71 @@ export function RoomClient({ roomId, hostToken }: Props) {
         setControlsBusy(false);
       }
     },
-    [roomId, refreshPlaybackState]
+    [
+      roomId,
+      refreshPlaybackState,
+      playbackAnchorSec,
+      playbackAnchorAt,
+      playbackPaused,
+    ]
   );
+
+  const seekBy = useCallback(
+    async (deltaSec: number) => {
+      setControlsBusy(true);
+      try {
+        const fromPlayer = syncPlayerRef.current?.getCurrentTime();
+        const fromClock = effectivePlaybackSec(
+          playbackAnchorSec,
+          playbackAnchorAt,
+          playbackPaused
+        );
+        const base =
+          fromPlayer != null && Number.isFinite(fromPlayer)
+            ? fromPlayer
+            : fromClock;
+        const next = Math.max(0, base + deltaSec);
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("playback_seek", {
+          p_room_id: roomId,
+          p_seconds: next,
+          p_host_token: hostTokenForRpc,
+        });
+        if (error) console.error(error);
+        await refreshPlaybackState();
+      } finally {
+        setControlsBusy(false);
+      }
+    },
+    [
+      roomId,
+      hostTokenForRpc,
+      refreshPlaybackState,
+      playbackAnchorSec,
+      playbackAnchorAt,
+      playbackPaused,
+    ]
+  );
+
+  useEffect(() => {
+    if (!ready || !isHost) return;
+    if (!nowPlaying?.video_id || playbackPaused) return;
+    let supabase: ReturnType<typeof getSupabaseBrowserClient>;
+    try {
+      supabase = getSupabaseBrowserClient();
+    } catch {
+      return;
+    }
+    const id = window.setInterval(() => {
+      const t = syncPlayerRef.current?.getCurrentTime?.();
+      if (t == null || !Number.isFinite(t)) return;
+      void supabase.rpc("playback_host_beat", {
+        p_room_id: roomId,
+        p_seconds: t,
+      });
+    }, 2500);
+    return () => window.clearInterval(id);
+  }, [ready, isHost, nowPlaying?.video_id, playbackPaused, roomId]);
 
   const handleAdd = useCallback(
     async (item: YouTubeSearchItem) => {
@@ -559,6 +651,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
     onPlay: () => void setPaused(false),
     onPause: () => void setPaused(true),
     onNext: () => void goNext(),
+    onSeekDelta: (d: number) => void seekBy(d),
   };
 
   const showGoToNowPlayingFab =
@@ -636,18 +729,38 @@ export function RoomClient({ roomId, hostToken }: Props) {
             />
           </section>
 
-          {isHost && (
+          {isHost ? (
             <section className="flex flex-col gap-2" aria-label="Playback">
-              <YouTubeHostPlayer
+              <YouTubeSyncPlayer
+                ref={syncPlayerRef}
                 videoId={nowPlaying?.video_id ?? null}
-                onEnded={advanceToNextTrack}
                 remotePaused={playbackPaused}
+                anchorSec={playbackAnchorSec}
+                anchorAtIso={playbackAnchorAt}
+                isHost
+                onHostVideoEnded={advanceToNextTrack}
               />
               <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
-                Playback runs on this device. Keep the tab open for the party.
+                Playback runs on this device. Everyone sees the same video in sync;
+                keep this tab open for the party.
               </p>
             </section>
-          )}
+          ) : hasNowPlaying ? (
+            <section className="flex flex-col gap-2" aria-label="Synced playback">
+              <YouTubeSyncPlayer
+                videoId={nowPlaying.video_id}
+                remotePaused={playbackPaused}
+                anchorSec={playbackAnchorSec}
+                anchorAtIso={playbackAnchorAt}
+                isHost={false}
+                onHostVideoEnded={() => {}}
+              />
+              <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
+                Same video as the host, kept in sync. Prefer listening on the
+                host speaker; preview is muted by default.
+              </p>
+            </section>
+          ) : null}
 
           <section
           ref={queueSectionRef}

@@ -4,9 +4,19 @@ declare global {
   namespace YT {
     interface Player {
       loadVideoById(videoId: string): void;
+      loadVideoById(options: {
+        videoId: string;
+        startSeconds?: number;
+        endSeconds?: number;
+        suggestedQuality?: string;
+      }): void;
       playVideo(): void;
       pauseVideo(): void;
       stopVideo(): void;
+      seekTo(seconds: number, allowSeekAhead?: boolean): void;
+      getCurrentTime(): number;
+      mute(): void;
+      unMute(): void;
       destroy(): void;
     }
 
