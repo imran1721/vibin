@@ -8,6 +8,7 @@ import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
 import { PwaInstallOption } from "@/components/PwaInstallOption";
 import { VibinMark } from "@/components/VibinMark";
+import { LegalFooter } from "@/components/LegalFooter";
 
 const scanQrBtnClass =
   "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -101,6 +102,8 @@ export function VibinHome() {
       <div className="border-border flex flex-col gap-3 border-t pt-8">
         <PwaInstallOption />
       </div>
+
+      <LegalFooter />
 
       <JoinRoomQrDialog
         open={scanOpen}
