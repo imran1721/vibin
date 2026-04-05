@@ -489,6 +489,20 @@ export function RoomClient({ roomId, hostToken }: Props) {
     ]
   );
 
+  const reportIframeSeek = useCallback(
+    async (seconds: number) => {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.rpc("playback_seek", {
+        p_room_id: roomId,
+        p_seconds: Math.max(0, seconds),
+        p_host_token: hostTokenForRpc,
+      });
+      if (error) console.error(error);
+      await refreshPlaybackState();
+    },
+    [roomId, hostTokenForRpc, refreshPlaybackState]
+  );
+
   useEffect(() => {
     if (!ready || !isHost) return;
     if (!nowPlaying?.video_id || playbackPaused) return;
@@ -739,6 +753,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
                 anchorAtIso={playbackAnchorAt}
                 isHost
                 onHostVideoEnded={advanceToNextTrack}
+                onPlaybackScrub={reportIframeSeek}
               />
               <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
                 Playback runs on this device. Everyone sees the same video in sync;
@@ -754,6 +769,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
                 anchorAtIso={playbackAnchorAt}
                 isHost={false}
                 onHostVideoEnded={() => {}}
+                onPlaybackScrub={reportIframeSeek}
               />
               <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
                 Same video as the host, kept in sync. Prefer listening on the

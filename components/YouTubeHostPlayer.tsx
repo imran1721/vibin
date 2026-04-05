@@ -22,6 +22,11 @@ type Props = {
   /** Only the host advances the queue when a video ends naturally. */
   isHost: boolean;
   onHostVideoEnded: () => void;
+  /**
+   * When someone uses the YouTube iframe timeline and drifts from the shared
+   * clock, publish the new time (debounced). Same callback for host and guests.
+   */
+  onPlaybackScrub?: (seconds: number) => void;
 };
 
 let iframeApiPromise: Promise<void> | null = null;
@@ -46,8 +51,14 @@ function loadIframeApi(): Promise<void> {
 }
 
 const NATURAL_END_DEBOUNCE_MS = 900;
-const BIG_SEEK_THRESHOLD = 4;
-const DRIFT_THRESHOLD = 2;
+/** Apply remote timeline updates when anchor changes; skip tiny diffs (heartbeat noise). */
+const REMOTE_SYNC_MIN_DIFF = 2.5;
+/** In-iframe scrub vs shared timeline — playing (wall clock adds slack). */
+const IFRAME_SCRUB_PLAYING = 3.5;
+const IFRAME_SCRUB_PAUSED = 1.5;
+const IFRAME_SCRUB_DEBOUNCE_MS = 320;
+const GUEST_DRIFT_INTERVAL_MS = 900;
+const GUEST_DRIFT_THRESHOLD = 2;
 
 export const YouTubeSyncPlayer = forwardRef<
   YouTubeSyncPlayerHandle,
@@ -60,12 +71,14 @@ export const YouTubeSyncPlayer = forwardRef<
     anchorAtIso,
     isHost,
     onHostVideoEnded,
+    onPlaybackScrub,
   },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const onEndedRef = useRef(onHostVideoEnded);
+  const onPlaybackScrubRef = useRef(onPlaybackScrub);
   const remotePausedRef = useRef(remotePaused);
   const prevYtStateRef = useRef<number>(-1);
   const lastNaturalEndedAtRef = useRef(0);
@@ -78,6 +91,10 @@ export const YouTubeSyncPlayer = forwardRef<
   useEffect(() => {
     onEndedRef.current = onHostVideoEnded;
   }, [onHostVideoEnded]);
+
+  useEffect(() => {
+    onPlaybackScrubRef.current = onPlaybackScrub;
+  }, [onPlaybackScrub]);
 
   useEffect(() => {
     remotePausedRef.current = remotePaused;
@@ -201,21 +218,69 @@ export const YouTubeSyncPlayer = forwardRef<
     else playerRef.current.playVideo();
   }, [playerReady, videoId, remotePaused]);
 
+  const prevAnchorKeyRef = useRef("");
+  useEffect(() => {
+    if (!videoId) prevAnchorKeyRef.current = "";
+  }, [videoId]);
+
+  /** Follow remote anchor changes (guest/host seek, heartbeat). Skips tiny diffs so host iframe seeks are not snapped back. */
   useEffect(() => {
     if (!playerReady || !playerRef.current || !videoId) return;
-    const target = effectivePlaybackSec(
-      anchorSec,
-      anchorAtIso,
-      remotePaused
-    );
+    const key = `${videoId}|${anchorSec}|${anchorAtIso}|${remotePaused}`;
+    if (key === prevAnchorKeyRef.current) return;
+    prevAnchorKeyRef.current = key;
+    const target = effectivePlaybackSec(anchorSec, anchorAtIso, remotePaused);
     const cur = playerRef.current.getCurrentTime?.() ?? 0;
-    if (Math.abs(cur - target) > BIG_SEEK_THRESHOLD) {
-      playerRef.current.seekTo(target, true);
-    }
+    if (Math.abs(cur - target) < REMOTE_SYNC_MIN_DIFF) return;
+    playerRef.current.seekTo(target, true);
+    if (remotePaused) playerRef.current.pauseVideo();
   }, [playerReady, videoId, anchorSec, anchorAtIso, remotePaused]);
 
+  /** Detect seeks via the embedded YouTube progress bar (not exposed as events). */
   useEffect(() => {
-    if (!playerReady || !playerRef.current || !videoId || remotePaused) return;
+    if (!playerReady || !playerRef.current || !videoId || !onPlaybackScrub) return;
+    let debounceTimer: number | null = null;
+    const id = window.setInterval(() => {
+      const paused = pausedRef.current;
+      const exp = effectivePlaybackSec(
+        anchorSecRef.current,
+        anchorAtRef.current,
+        paused
+      );
+      const act = playerRef.current?.getCurrentTime?.() ?? 0;
+      const th = paused ? IFRAME_SCRUB_PAUSED : IFRAME_SCRUB_PLAYING;
+      if (Math.abs(act - exp) < th) return;
+      if (debounceTimer != null) return;
+      debounceTimer = window.setTimeout(() => {
+        debounceTimer = null;
+        const p = pausedRef.current;
+        const exp2 = effectivePlaybackSec(
+          anchorSecRef.current,
+          anchorAtRef.current,
+          p
+        );
+        const act2 = playerRef.current?.getCurrentTime?.() ?? 0;
+        const th2 = p ? IFRAME_SCRUB_PAUSED : IFRAME_SCRUB_PLAYING;
+        if (Math.abs(act2 - exp2) < th2) return;
+        onPlaybackScrubRef.current?.(act2);
+      }, IFRAME_SCRUB_DEBOUNCE_MS);
+    }, 420);
+    return () => {
+      window.clearInterval(id);
+      if (debounceTimer != null) window.clearTimeout(debounceTimer);
+    };
+  }, [playerReady, videoId, onPlaybackScrub]);
+
+  /** Guests only: nudge toward shared clock when slightly off (not a full iframe scrub). */
+  useEffect(() => {
+    if (
+      isHost ||
+      !playerReady ||
+      !playerRef.current ||
+      !videoId ||
+      remotePaused
+    )
+      return;
     const id = window.setInterval(() => {
       const target = effectivePlaybackSec(
         anchorSecRef.current,
@@ -223,12 +288,14 @@ export const YouTubeSyncPlayer = forwardRef<
         false
       );
       const cur = playerRef.current?.getCurrentTime?.() ?? 0;
-      if (Math.abs(cur - target) > DRIFT_THRESHOLD) {
+      const d = Math.abs(cur - target);
+      if (d >= IFRAME_SCRUB_PLAYING) return;
+      if (d > GUEST_DRIFT_THRESHOLD) {
         playerRef.current?.seekTo(target, true);
       }
-    }, 900);
+    }, GUEST_DRIFT_INTERVAL_MS);
     return () => window.clearInterval(id);
-  }, [playerReady, videoId, remotePaused]);
+  }, [isHost, playerReady, videoId, remotePaused]);
 
   useEffect(() => {
     if (!playerReady || !playerRef.current || isHost) return;
