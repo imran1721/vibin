@@ -97,6 +97,17 @@ export function saveDisplayProfileAnonymous(): void {
   }
 }
 
+/** Clears saved name / anonymous choice (e.g. leaving a party or joining a different room). */
+export function clearDisplayProfileStorage(): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+    localStorage.removeItem(LEGACY_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 /**
  * @deprecated Prefer {@link getQueueAttributionLabel} for queue rows.
  * Returns a non-null fallback for legacy call sites.

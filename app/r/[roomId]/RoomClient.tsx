@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import {
@@ -41,6 +41,13 @@ import {
   GuestListDialog,
   type GuestListEntry,
 } from "@/components/GuestListDialog";
+import {
+  clearPartySession,
+  GUEST_VIDEO_PREF_KEY,
+  readGuestShowSyncedVideoPref,
+  setStoredPartyRoomId,
+  shouldResetPartySessionForRoom,
+} from "@/lib/party-session";
 
 type Props = {
   roomId: string;
@@ -60,8 +67,6 @@ const headerToolbarClass =
 const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
-const GUEST_VIDEO_PREF_KEY = "vibin_guest_show_synced_video";
-
 /** Throttled server touch so closed tabs go stale and host can prune. */
 const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
 /** Host-only cleanup interval (must exceed heartbeat + network slack). */
@@ -72,15 +77,6 @@ const STALE_GUEST_MINUTES = 3;
 function shortTrackTitle(title: string, max = 36): string {
   const t = title.trim();
   return t.length <= max ? t : `${t.slice(0, max)}…`;
-}
-
-function readGuestVideoPref(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    return window.sessionStorage.getItem(GUEST_VIDEO_PREF_KEY) === "1";
-  } catch {
-    return false;
-  }
 }
 
 const collapsibleTriggerClass =
@@ -190,7 +186,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
+  const prevJoinKeyRef = useRef<string>("");
 
+  const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
 
   const onNowPlayingVisibleInQueueChange = useCallback((visible: boolean) => {
@@ -198,7 +196,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
   }, []);
 
   useEffect(() => {
-    setGuestShowSyncedVideo(readGuestVideoPref());
+    setGuestShowSyncedVideo(readGuestShowSyncedVideoPref());
   }, []);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
@@ -209,6 +207,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
       /* private mode */
     }
   }, []);
+
+  const leaveToHome = useCallback(() => {
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        await clearPartySession(supabase);
+      } catch {
+        /* still navigate */
+      }
+      router.push("/");
+    })();
+  }, [router]);
 
   useEffect(() => {
     if (!ready) return;
@@ -338,6 +348,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
   }, [roomId]);
 
   useEffect(() => {
+    const joinKey = `${roomId}|${hostToken ?? ""}`;
+    const prevJoinKey = prevJoinKeyRef.current;
+    const joinTargetChanged =
+      prevJoinKey !== "" && prevJoinKey !== joinKey;
+    prevJoinKeyRef.current = joinKey;
+
+    if (joinTargetChanged) {
+      setReady(false);
+      setBootError(null);
+      setProfileGateDone(false);
+    }
+
     let cancelled = false;
     let channel: RealtimeChannel | null = null;
 
@@ -355,6 +377,10 @@ export function RoomClient({ roomId, hostToken }: Props) {
           e instanceof Error ? e.message : "Missing Supabase configuration"
         );
         return;
+      }
+
+      if (shouldResetPartySessionForRoom(roomId)) {
+        await clearPartySession(supabase);
       }
 
       try {
@@ -391,6 +417,8 @@ export function RoomClient({ roomId, hostToken }: Props) {
         }
         return;
       }
+
+      setStoredPartyRoomId(roomId);
 
       const host = await checkHostRole();
       if (!cancelled) setIsHost(host);
@@ -902,9 +930,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
           <code className="text-foreground bg-muted rounded px-1.5 py-0.5 text-[0.8rem]">.env.local</code>{" "}
           and add your Supabase URL and anon key.
         </p>
-        <Link href="/" className={linkClass}>
+        <button type="button" onClick={leaveToHome} className={linkClass}>
           Back home
-        </Link>
+        </button>
       </main>
     );
   }
@@ -916,9 +944,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
         <p className="text-muted-foreground text-sm leading-relaxed">
           {bootError}
         </p>
-        <Link href="/" className={linkClass}>
+        <button type="button" onClick={leaveToHome} className={linkClass}>
           Back home
-        </Link>
+        </button>
       </main>
     );
   }
@@ -1026,9 +1054,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
             >
               Invite
             </button>
-            <Link href="/" className={`${headerToolbarBtnClass} no-underline`}>
+            <button
+              type="button"
+              onClick={leaveToHome}
+              className={headerToolbarBtnClass}
+            >
               Home
-            </Link>
+            </button>
           </div>
         </div>
       </header>
