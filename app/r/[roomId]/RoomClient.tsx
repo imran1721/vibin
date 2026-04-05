@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,7 +13,11 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
-import { getOrCreateDisplayName } from "@/lib/displayName";
+import {
+  getQueueAttributionLabel,
+  hasCompletedDisplayProfile,
+  shouldBroadcastActivity,
+} from "@/lib/displayName";
 import type { QueueItem, YouTubeSearchItem } from "@/lib/types";
 import {
   YouTubeSyncPlayer,
@@ -31,6 +36,7 @@ import { VibinMark } from "@/components/VibinMark";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
+import { RoomDisplayNameDialog } from "@/components/RoomDisplayNameDialog";
 
 type Props = {
   roomId: string;
@@ -51,6 +57,18 @@ const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
 const GUEST_VIDEO_PREF_KEY = "vibin_guest_show_synced_video";
+
+/** Throttled server touch so closed tabs go stale and host can prune. */
+const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
+/** Host-only cleanup interval (must exceed heartbeat + network slack). */
+const HOST_PRUNE_STALE_GUESTS_MS = 90_000;
+/** Guests with no heartbeat for this long are removed by prune (host client or cron). */
+const STALE_GUEST_MINUTES = 3;
+
+function shortTrackTitle(title: string, max = 36): string {
+  const t = title.trim();
+  return t.length <= max ? t : `${t.slice(0, max)}…`;
+}
 
 function readGuestVideoPref(): boolean {
   if (typeof window === "undefined") return false;
@@ -154,8 +172,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const [joinToastMessage, setJoinToastMessage] = useState<string | null>(
     null
   );
+  const [activityToastMessage, setActivityToastMessage] = useState<
+    string | null
+  >(null);
+  const [profileGateDone, setProfileGateDone] = useState(false);
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
+  const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
@@ -227,6 +250,29 @@ export function RoomClient({ roomId, hostToken }: Props) {
   }, [roomId]);
 
   const dismissJoinToast = useCallback(() => setJoinToastMessage(null), []);
+
+  const dismissActivityToast = useCallback(
+    () => setActivityToastMessage(null),
+    []
+  );
+
+  const notifyRoomActivity = useCallback(async (message: string) => {
+    if (!shouldBroadcastActivity()) return;
+    const ch = roomChannelRef.current;
+    if (!ch) return;
+    const status = await ch.send({
+      type: "broadcast",
+      event: "room_activity",
+      payload: { text: message },
+    });
+    if (status !== "ok") console.error("room_activity broadcast:", status);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (ready && hasCompletedDisplayProfile()) {
+      setProfileGateDone(true);
+    }
+  }, [ready]);
 
   const refreshPlaybackState = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -337,7 +383,11 @@ export function RoomClient({ roomId, hostToken }: Props) {
       await loadRoomPresence();
 
       channel = supabase
-        .channel(`room:${roomId}`)
+        .channel(`room:${roomId}`, {
+          config: {
+            broadcast: { self: false },
+          },
+        })
         .on(
           "postgres_changes",
           {
@@ -369,7 +419,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
             filter: `room_id=eq.${roomId}`,
           },
           (payload) => {
-            void loadRoomPresence();
+            // Heartbeats only UPDATE last_seen_at — refetching on every tick would spam the room.
+            if (
+              payload.eventType === "INSERT" ||
+              payload.eventType === "DELETE"
+            ) {
+              void loadRoomPresence();
+            }
             if (payload.eventType === "INSERT") {
               const row = payload.new as {
                 user_id?: string;
@@ -385,13 +441,24 @@ export function RoomClient({ roomId, hostToken }: Props) {
             }
           }
         )
-        .subscribe();
+        .on("broadcast", { event: "room_activity" }, ({ payload }) => {
+          const p = payload as { text?: unknown };
+          if (typeof p?.text === "string" && p.text.length > 0) {
+            setActivityToastMessage(p.text);
+          }
+        })
+        .subscribe((status) => {
+          if (!cancelled && status === "SUBSCRIBED") {
+            roomChannelRef.current = channel;
+          }
+        });
 
       if (!cancelled) setReady(true);
     })();
 
     return () => {
       cancelled = true;
+      roomChannelRef.current = null;
       if (channel) {
         try {
           getSupabaseBrowserClient().removeChannel(channel);
@@ -408,6 +475,41 @@ export function RoomClient({ roomId, hostToken }: Props) {
     checkHostRole,
     refreshPlaybackState,
   ]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const supabase = getSupabaseBrowserClient();
+    const touch = () => {
+      void supabase.rpc("touch_room_presence", { p_room_id: roomId });
+    };
+    touch();
+    const interval = window.setInterval(touch, ROOM_PRESENCE_HEARTBEAT_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") touch();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [ready, roomId]);
+
+  useEffect(() => {
+    if (!ready || !isHost) return;
+    const supabase = getSupabaseBrowserClient();
+    const prune = async () => {
+      const { error } = await supabase.rpc("prune_stale_room_guests", {
+        p_room_id: roomId,
+        p_host_token: hostToken ?? "",
+        p_inactive_minutes: STALE_GUEST_MINUTES,
+      });
+      if (error) console.error(error);
+      await loadRoomPresence();
+    };
+    void prune();
+    const interval = window.setInterval(() => void prune(), HOST_PRUNE_STALE_GUESTS_MS);
+    return () => window.clearInterval(interval);
+  }, [ready, roomId, isHost, hostToken, loadRoomPresence]);
 
   const effectiveNowId = useMemo(() => {
     if (queue.length === 0) return null;
@@ -474,12 +576,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
         p_host_token: hostTokenForRpc,
       });
       if (error) console.error(error);
+      else {
+        const label = getQueueAttributionLabel();
+        if (label) {
+          void notifyRoomActivity(`${label} went to the previous track`);
+        }
+      }
       await loadQueue();
       await refreshPlaybackState();
     } finally {
       setControlsBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
 
   const goNext = useCallback(async () => {
     setControlsBusy(true);
@@ -490,12 +598,18 @@ export function RoomClient({ roomId, hostToken }: Props) {
         p_host_token: hostTokenForRpc,
       });
       if (error) console.error(error);
+      else {
+        const label = getQueueAttributionLabel();
+        if (label) {
+          void notifyRoomActivity(`${label} skipped to the next track`);
+        }
+      }
       await loadQueue();
       await refreshPlaybackState();
     } finally {
       setControlsBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
 
   const setPaused = useCallback(
     async (paused: boolean) => {
@@ -620,37 +734,55 @@ export function RoomClient({ roomId, hostToken }: Props) {
   const handleAdd = useCallback(
     async (item: YouTubeSearchItem) => {
       const supabase = getSupabaseBrowserClient();
+      const label = getQueueAttributionLabel();
       const { error } = await supabase.from("queue_items").insert({
         room_id: roomId,
         video_id: item.videoId,
         title: item.title,
         thumb_url: item.thumbUrl || null,
-        added_by: getOrCreateDisplayName(),
+        added_by: label,
       });
       if (error) console.error(error);
+      else if (label) {
+        void notifyRoomActivity(
+          `${label} added “${shortTrackTitle(item.title)}”`
+        );
+      }
       await loadQueue();
       await refreshPlaybackState();
     },
-    [roomId, loadQueue, refreshPlaybackState]
+    [roomId, loadQueue, notifyRoomActivity, refreshPlaybackState]
   );
 
   const handleRemove = useCallback(
     async (itemId: string) => {
+      const removed = queue.find((q) => q.id === itemId);
       const supabase = getSupabaseBrowserClient();
       const { error } = await supabase.rpc("remove_queue_item", {
         p_item_id: itemId,
         p_host_token: hostTokenForRpc,
       });
       if (error) console.error(error);
+      else {
+        const label = getQueueAttributionLabel();
+        if (label) {
+          void notifyRoomActivity(
+            removed
+              ? `${label} removed “${shortTrackTitle(removed.title)}”`
+              : `${label} removed a track from the queue`
+          );
+        }
+      }
       await loadQueue();
       await refreshPlaybackState();
     },
-    [hostTokenForRpc, loadQueue, refreshPlaybackState]
+    [hostTokenForRpc, loadQueue, notifyRoomActivity, queue, refreshPlaybackState]
   );
 
   const handlePlayQueueItem = useCallback(
     async (itemId: string) => {
       if (itemId === nowPlayingId) return;
+      const target = queue.find((q) => q.id === itemId);
       setQueueJumpBusy(true);
       try {
         const supabase = getSupabaseBrowserClient();
@@ -659,13 +791,30 @@ export function RoomClient({ roomId, hostToken }: Props) {
           p_host_token: hostTokenForRpc,
         });
         if (error) console.error(error);
+        else {
+          const label = getQueueAttributionLabel();
+          if (label) {
+            void notifyRoomActivity(
+              target
+                ? `${label} jumped to “${shortTrackTitle(target.title)}”`
+                : `${label} changed the track`
+            );
+          }
+        }
         await loadQueue();
         await refreshPlaybackState();
       } finally {
         setQueueJumpBusy(false);
       }
     },
-    [hostTokenForRpc, loadQueue, nowPlayingId, refreshPlaybackState]
+    [
+      hostTokenForRpc,
+      loadQueue,
+      notifyRoomActivity,
+      nowPlayingId,
+      queue,
+      refreshPlaybackState,
+    ]
   );
 
   const runClearQueue = useCallback(async () => {
@@ -680,13 +829,17 @@ export function RoomClient({ roomId, hostToken }: Props) {
         console.error(error);
         return;
       }
+      const label = getQueueAttributionLabel();
+      if (label) {
+        void notifyRoomActivity(`${label} cleared the queue`);
+      }
       await loadQueue();
       await refreshPlaybackState();
       setClearConfirmOpen(false);
     } finally {
       setClearQueueBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
 
   const openGuestInvite = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -748,6 +901,20 @@ export function RoomClient({ roomId, hostToken }: Props) {
     );
   }
 
+  if (!profileGateDone) {
+    return (
+      <main
+        className={`${shellMainScrollClass} flex min-h-[100dvh] flex-col items-center justify-center px-4 py-10`}
+      >
+        <RoomDisplayNameDialog
+          open
+          isHost={isHost}
+          onComplete={() => setProfileGateDone(true)}
+        />
+      </main>
+    );
+  }
+
   const playbackBusy = controlsBusy || queueJumpBusy;
 
   const queuePlayback = {
@@ -801,9 +968,6 @@ export function RoomClient({ roomId, hostToken }: Props) {
                     Guest
                   </span>
                 </div>
-                <h1 className="font-display text-foreground text-2xl font-bold tracking-tight sm:text-3xl">
-                  You’re in the room
-                </h1>
               </div>
             )}
           </div>
@@ -835,12 +999,15 @@ export function RoomClient({ roomId, hostToken }: Props) {
         </div>
       </header>
 
-      {ready ? (
-        <RoomGuestJoinToast
-          message={joinToastMessage}
-          onDismiss={dismissJoinToast}
-        />
-      ) : null}
+      <RoomGuestJoinToast
+        message={joinToastMessage}
+        onDismiss={dismissJoinToast}
+      />
+      <RoomGuestJoinToast
+        message={activityToastMessage}
+        onDismiss={dismissActivityToast}
+        variant="stacked"
+      />
 
       <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
@@ -890,7 +1057,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
                     anchorSec={playbackAnchorSec}
                     anchorAtIso={playbackAnchorAt}
                     isHost={false}
-                    onHostVideoEnded={() => {}}
+                    onHostVideoEnded={() => { }}
                     onPlaybackScrub={reportIframeSeek}
                     onIframePausePlay={reportIframePausePlay}
                   />
@@ -932,121 +1099,123 @@ export function RoomClient({ roomId, hostToken }: Props) {
           ) : null}
 
           <section
-          ref={queueSectionRef}
-          className="border-border min-w-0 border-t pt-3"
-          aria-labelledby="queue-section-title"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-            <button
-              type="button"
-              id="queue-section-title"
-              className={collapsibleTriggerClass}
-              aria-expanded={queueSectionOpen}
-              aria-controls="queue-panel"
-              onClick={() => setQueueSectionOpen((o) => !o)}
-            >
-              <CollapseChevron open={queueSectionOpen} />
-              <span className="font-display text-base font-bold sm:text-lg">
-                Queue
-              </span>
-            </button>
-            {isHost && queueSectionOpen ? (
+            ref={queueSectionRef}
+            className="border-border min-w-0 border-t pt-3"
+            aria-labelledby="queue-section-title"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
               <button
                 type="button"
-                onClick={() => setClearConfirmOpen(true)}
-                disabled={
-                  queue.length === 0 ||
-                  clearQueueBusy ||
-                  queueJumpBusy ||
-                  clearConfirmOpen
-                }
-                className="border-destructive/45 text-destructive hover:bg-destructive/10 focus-visible:ring-destructive inline-flex min-h-8 shrink-0 items-center justify-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:text-xs"
+                id="queue-section-title"
+                className={collapsibleTriggerClass}
+                aria-expanded={queueSectionOpen}
+                aria-controls="queue-panel"
+                onClick={() => setQueueSectionOpen((o) => !o)}
               >
-                Clear queue
+                <CollapseChevron open={queueSectionOpen} />
+                <span className="font-display text-base font-bold sm:text-lg">
+                  Queue
+                </span>
               </button>
-            ) : null}
-          </div>
-          {!queueSectionOpen && nowPlaying ? (
-            <div
-              className="vibin-collapsible-strip-in mt-3"
-              role="region"
-              aria-label="Now playing"
-            >
-              <NowPlayingQueueRow
-                item={nowPlaying}
-                playback={hasNowPlaying ? queuePlayback : undefined}
-              />
+              {isHost && queueSectionOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setClearConfirmOpen(true)}
+                  disabled={
+                    queue.length === 0 ||
+                    clearQueueBusy ||
+                    queueJumpBusy ||
+                    clearConfirmOpen
+                  }
+                  className="border-destructive/45 text-destructive hover:bg-destructive/10 focus-visible:ring-destructive inline-flex min-h-8 shrink-0 items-center justify-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:text-xs"
+                >
+                  Clear queue
+                </button>
+              ) : null}
             </div>
-          ) : null}
-          <CollapsiblePanel
-            id="queue-panel"
-            open={queueSectionOpen}
-            labelledBy="queue-section-title"
-            marginClassWhenOpen="mt-3"
-            innerClassName="flex flex-col gap-3"
-          >
-            <QueueList
-              ref={queueListRef}
-              listPanelOpen={queueSectionOpen}
-              items={queue}
-              onRemove={handleRemove}
-              nowPlayingId={nowPlayingId}
-              onPlayItem={(id) => void handlePlayQueueItem(id)}
-              playBusy={queueJumpBusy}
-              playback={hasNowPlaying ? queuePlayback : undefined}
-              onNowPlayingVisibleInQueueChange={
-                onNowPlayingVisibleInQueueChange
-              }
-            />
-          </CollapsiblePanel>
+            {!queueSectionOpen && nowPlaying ? (
+              <div
+                className="vibin-collapsible-strip-in mt-3"
+                role="region"
+                aria-label="Now playing"
+              >
+                <NowPlayingQueueRow
+                  item={nowPlaying}
+                  playback={hasNowPlaying ? queuePlayback : undefined}
+                />
+              </div>
+            ) : null}
+            <CollapsiblePanel
+              id="queue-panel"
+              open={queueSectionOpen}
+              labelledBy="queue-section-title"
+              marginClassWhenOpen="mt-3"
+              innerClassName="flex flex-col gap-3"
+            >
+              <QueueList
+                ref={queueListRef}
+                listPanelOpen={queueSectionOpen}
+                items={queue}
+                onRemove={handleRemove}
+                nowPlayingId={nowPlayingId}
+                onPlayItem={(id) => void handlePlayQueueItem(id)}
+                playBusy={queueJumpBusy}
+                playback={hasNowPlaying ? queuePlayback : undefined}
+                onNowPlayingVisibleInQueueChange={
+                  onNowPlayingVisibleInQueueChange
+                }
+              />
+            </CollapsiblePanel>
           </section>
 
           <section
-          className="border-border min-w-0 border-t pt-3"
-          aria-labelledby="yt-pl-section-title"
-        >
-          <button
-            type="button"
-            id="yt-pl-section-title"
-            className={collapsibleTriggerClass}
-            aria-expanded={playlistSectionOpen}
-            aria-controls="yt-pl-panel"
-            onClick={() => setPlaylistSectionOpen((o) => !o)}
+            className="border-border min-w-0 border-t pt-3"
+            aria-labelledby="yt-pl-section-title"
           >
-            <CollapseChevron open={playlistSectionOpen} />
-            <span className="font-display text-base font-bold sm:text-lg">
-              YouTube playlists
-            </span>
-          </button>
-          <CollapsiblePanel
-            id="yt-pl-panel"
-            open={playlistSectionOpen}
-            labelledBy="yt-pl-section-title"
-            marginClassWhenOpen="mt-[2px]"
-            innerClassName="flex flex-col gap-2.5"
-          >
-            <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
-              Connect your Google account to list your playlists. Add tracks,
-              add an entire playlist, or replace the queue.
-            </p>
-            <Suspense
-              fallback={
-                <p className="text-muted-foreground text-xs">
-                  Loading playlists…
-                </p>
-              }
+            <button
+              type="button"
+              id="yt-pl-section-title"
+              className={collapsibleTriggerClass}
+              aria-expanded={playlistSectionOpen}
+              aria-controls="yt-pl-panel"
+              onClick={() => setPlaylistSectionOpen((o) => !o)}
             >
-              <HostYoutubePlaylists
-                roomId={roomId}
-                omitSectionChrome
-                queuedVideoIds={queuedVideoIds}
-                onImported={() => {
-                  void loadQueue();
-                  void refreshPlaybackState();
-                }}
-              />
-            </Suspense>
-          </CollapsiblePanel>
+              <CollapseChevron open={playlistSectionOpen} />
+              <span className="font-display text-base font-bold sm:text-lg">
+                YouTube playlists
+              </span>
+            </button>
+            <CollapsiblePanel
+              id="yt-pl-panel"
+              open={playlistSectionOpen}
+              labelledBy="yt-pl-section-title"
+              marginClassWhenOpen="mt-[2px]"
+              innerClassName="flex flex-col gap-2.5"
+            >
+              <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
+                Connect your Google account to list your playlists. Add tracks,
+                add an entire playlist, or replace the queue.
+              </p>
+              <Suspense
+                fallback={
+                  <p className="text-muted-foreground text-xs">
+                    Loading playlists…
+                  </p>
+                }
+              >
+                <HostYoutubePlaylists
+                  roomId={roomId}
+                  queueAttributionLabel={getQueueAttributionLabel()}
+                  onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                  omitSectionChrome
+                  queuedVideoIds={queuedVideoIds}
+                  onImported={() => {
+                    void loadQueue();
+                    void refreshPlaybackState();
+                  }}
+                />
+              </Suspense>
+            </CollapsiblePanel>
           </section>
 
           {isHost ? (

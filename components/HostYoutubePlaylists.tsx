@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getOrCreateDisplayName } from "@/lib/displayName";
-
 type Props = {
   roomId: string;
+  /** `null` when anonymous — queue rows omit attribution. */
+  queueAttributionLabel: string | null;
+  /** Called after a successful add when the user chose a display name. */
+  onQueueActivity?: (message: string) => void;
   onImported?: () => void;
   /** Hide title + description; use when a parent provides the section heading (e.g. collapsible). */
   omitSectionChrome?: boolean;
@@ -26,8 +28,15 @@ const plAddBtnClass =
 const plAddedBtnClass =
   "border-border bg-muted/55 text-muted-foreground inline-flex min-h-9 min-w-[3.75rem] shrink-0 cursor-default items-center justify-center rounded-lg border px-2.5 text-[0.65rem] font-semibold sm:min-h-10 sm:min-w-[4.25rem] sm:px-3 sm:text-xs";
 
+function shortTrackTitle(title: string, max = 36): string {
+  const t = title.trim();
+  return t.length <= max ? t : `${t.slice(0, max)}…`;
+}
+
 export function HostYoutubePlaylists({
   roomId,
+  queueAttributionLabel,
+  onQueueActivity,
   onImported,
   omitSectionChrome = false,
   queuedVideoIds,
@@ -172,21 +181,23 @@ export function HostYoutubePlaylists({
           video_id: it.videoId,
           title: it.title,
           thumb_url: it.thumbUrl || null,
-          added_by: getOrCreateDisplayName(),
+          added_by: queueAttributionLabel,
         });
         if (error) {
           setImportMsg(error.message);
           return;
         }
-        const short =
-          it.title.length > 42 ? `${it.title.slice(0, 42)}…` : it.title;
-        // setImportMsg(`Added “${short}” to queue.`);
+        if (queueAttributionLabel) {
+          onQueueActivity?.(
+            `${queueAttributionLabel} added “${shortTrackTitle(it.title)}”`
+          );
+        }
         onImported?.();
       } finally {
         setSingleAddBusyId(null);
       }
     },
-    [roomId, onImported]
+    [roomId, queueAttributionLabel, onQueueActivity, onImported]
   );
 
   const importPlaylist = async (
@@ -204,7 +215,12 @@ export function HostYoutubePlaylists({
           Authorization: `Bearer ${t}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ roomId, playlistId, mode }),
+        body: JSON.stringify({
+          roomId,
+          playlistId,
+          mode,
+          addedBy: queueAttributionLabel,
+        }),
       });
       const data = (await res.json()) as {
         imported?: number;
@@ -218,6 +234,11 @@ export function HostYoutubePlaylists({
       setImportMsg(
         `${mode === "replace" ? "Replaced queue with" : "Added"} ${data.imported ?? 0} videos.`
       );
+      if (queueAttributionLabel && (data.imported ?? 0) > 0) {
+        onQueueActivity?.(
+          `${queueAttributionLabel} ${mode === "replace" ? "replaced the queue with" : "added"} ${data.imported} tracks from a playlist`
+        );
+      }
       onImported?.();
     } finally {
       setImportBusy(false);

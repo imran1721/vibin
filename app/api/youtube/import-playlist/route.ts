@@ -10,6 +10,8 @@ type Body = {
   roomId?: string;
   playlistId?: string;
   mode?: "append" | "replace";
+  /** Shown on queue rows; omit or empty → "Playlist". */
+  addedBy?: string | null;
 };
 
 export async function POST(request: NextRequest) {
@@ -28,6 +30,10 @@ export async function POST(request: NextRequest) {
   const roomId = body.roomId?.trim();
   const playlistId = body.playlistId?.trim();
   const mode = body.mode === "replace" ? "replace" : "append";
+  const addedByLabel =
+    typeof body.addedBy === "string" && body.addedBy.trim().length > 0
+      ? body.addedBy.trim().slice(0, 40)
+      : "Playlist";
 
   if (!roomId || !playlistId) {
     return NextResponse.json(
@@ -136,7 +142,7 @@ export async function POST(request: NextRequest) {
         video_id: vid,
         title: it.snippet?.title ?? "Untitled",
         thumb_url: it.snippet?.thumbnails?.medium?.url ?? null,
-        added_by: "Playlist",
+        added_by: addedByLabel,
       });
     }
     pageToken = data.nextPageToken;
