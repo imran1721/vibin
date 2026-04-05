@@ -37,6 +37,10 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
 import { RoomDisplayNameDialog } from "@/components/RoomDisplayNameDialog";
+import {
+  GuestListDialog,
+  type GuestListEntry,
+} from "@/components/GuestListDialog";
 
 type Props = {
   roomId: string;
@@ -169,6 +173,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
   /** Guests only: load/sync YouTube on this device when true (opt-in). */
   const [guestShowSyncedVideo, setGuestShowSyncedVideo] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
+  const [guestRoster, setGuestRoster] = useState<GuestListEntry[]>([]);
+  const [guestListOpen, setGuestListOpen] = useState(false);
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [joinToastMessage, setJoinToastMessage] = useState<string | null>(
     null
   );
@@ -239,14 +246,29 @@ export function RoomClient({ roomId, hostToken }: Props) {
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
       .from("room_members")
-      .select("user_id, role")
-      .eq("room_id", roomId);
+      .select("user_id, role, display_name, last_seen_at, joined_at")
+      .eq("room_id", roomId)
+      .order("joined_at", { ascending: true });
     if (error) {
       console.error(error);
       return;
     }
-    const guests = (data ?? []).filter((r) => r.role === "guest").length;
-    setGuestCount(guests);
+    const rows = (data ?? []) as Array<{
+      user_id: string;
+      role: string;
+      display_name: string | null;
+      last_seen_at: string;
+      joined_at: string;
+    }>;
+    const guests = rows.filter((r) => r.role === "guest");
+    setGuestCount(guests.length);
+    setGuestRoster(
+      guests.map((g) => ({
+        userId: g.user_id,
+        label: g.display_name?.trim() || "Anonymous",
+        lastSeenAt: g.last_seen_at,
+      }))
+    );
   }, [roomId]);
 
   const dismissJoinToast = useCallback(() => setJoinToastMessage(null), []);
@@ -376,7 +398,9 @@ export function RoomClient({ roomId, hostToken }: Props) {
       const {
         data: { user: joinedUser },
       } = await supabase.auth.getUser();
-      currentUserIdRef.current = joinedUser?.id ?? null;
+      const uid = joinedUser?.id ?? null;
+      currentUserIdRef.current = uid;
+      if (!cancelled) setSessionUserId(uid);
 
       await loadQueue();
       await refreshPlaybackState();
@@ -477,10 +501,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
   ]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || !profileGateDone) return;
     const supabase = getSupabaseBrowserClient();
     const touch = () => {
-      void supabase.rpc("touch_room_presence", { p_room_id: roomId });
+      void supabase.rpc("touch_room_presence", {
+        p_room_id: roomId,
+        p_display_name: getQueueAttributionLabel() ?? "",
+      });
     };
     touch();
     const interval = window.setInterval(touch, ROOM_PRESENCE_HEARTBEAT_MS);
@@ -492,7 +519,12 @@ export function RoomClient({ roomId, hostToken }: Props) {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [ready, roomId]);
+  }, [ready, profileGateDone, roomId]);
+
+  useEffect(() => {
+    if (!ready || !guestListOpen) return;
+    void loadRoomPresence();
+  }, [guestListOpen, ready, loadRoomPresence]);
 
   useEffect(() => {
     if (!ready || !isHost) return;
@@ -973,12 +1005,14 @@ export function RoomClient({ roomId, hostToken }: Props) {
           </div>
           <div className={headerToolbarClass}>
             {ready ? (
-              <span
-                className="text-muted-foreground border-border/60 max-w-[4.75rem] shrink-0 truncate border-r px-1.5 text-center text-[0.6rem] font-semibold sm:max-w-none sm:px-3 sm:text-xs"
-                title={`${guestCount} guest${guestCount === 1 ? "" : "s"} in this session`}
+              <button
+                type="button"
+                onClick={() => setGuestListOpen(true)}
+                className="text-muted-foreground border-border/60 hover:bg-muted/50 focus-visible:ring-ring max-w-[4.75rem] shrink-0 truncate border-r px-1.5 text-center text-[0.6rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:max-w-none sm:px-3 sm:text-xs"
+                title={`${guestCount} guest${guestCount === 1 ? "" : "s"} — tap to see who is here`}
               >
                 {guestCount}&nbsp;{guestCount === 1 ? "guest" : "guests"}
-              </span>
+              </button>
             ) : null}
             <button
               type="button"
@@ -1234,6 +1268,13 @@ export function RoomClient({ roomId, hostToken }: Props) {
             open={inviteOpen}
             onOpenChange={setInviteOpen}
             url={guestInviteUrl}
+          />
+          <GuestListDialog
+            open={guestListOpen}
+            onOpenChange={setGuestListOpen}
+            guests={guestRoster}
+            currentUserId={sessionUserId}
+            onRefresh={() => void loadRoomPresence()}
           />
         </div>
       </div>

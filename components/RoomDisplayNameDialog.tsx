@@ -6,11 +6,13 @@ import {
   saveDisplayProfileNamed,
 } from "@/lib/displayName";
 
-const btnSecondary =
-  "border-border text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-11 w-full flex-1 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10";
+/** Shared: same min-height + fill grid row so both buttons match when one line-wraps. */
+const btnBase =
+  "inline-flex w-full min-h-[3.25rem] items-center justify-center rounded-xl px-3 py-2.5 text-center text-sm leading-snug transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-[3.5rem] sm:px-4 h-full";
 
-const btnPrimary =
-  "bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring inline-flex min-h-11 w-full flex-1 items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 disabled:opacity-45";
+const btnSecondary = `${btnBase} border-border text-foreground hover:bg-muted focus-visible:ring-ring border font-semibold order-2 sm:order-1`;
+
+const btnPrimary = `${btnBase} bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring font-bold transition-[filter] order-1 sm:order-2 disabled:opacity-45`;
 
 type Props = {
   open: boolean;
@@ -63,7 +65,7 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
   return (
     <dialog
       ref={dialogRef}
-      className="border-border bg-background text-foreground fixed left-1/2 top-1/2 z-[120] max-h-[min(92dvh,40rem)] w-[min(100vw-1.5rem,22rem)] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border p-0 shadow-2xl sm:w-96 [&::backdrop]:bg-black/60 [&::backdrop]:backdrop-blur-sm"
+      className="border-border bg-background text-foreground fixed left-1/2 top-1/2 z-[120] max-h-[min(92dvh,40rem)] w-[min(100vw-1.5rem,22rem)] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border p-0 shadow-2xl sm:w-[min(100vw-2rem,26rem)] [&::backdrop]:bg-black/60 [&::backdrop]:backdrop-blur-sm"
       aria-labelledby={titleId}
       aria-describedby={descId}
       onKeyDown={onKeyDown}
@@ -109,13 +111,13 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
           />
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-row-reverse">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-stretch">
           <button
             type="button"
             className={btnPrimary}
             onClick={() => finishNamed()}
           >
-            {name.trim() ? "Continue" : "Continue anonymously"}
+            {name.trim() ? "Use this name" : "Continue"}
           </button>
           <button
             type="button"
