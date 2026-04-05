@@ -254,6 +254,12 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   const loadRoomPresence = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
+    const {
+      data: { user: presenceUser },
+    } = await supabase.auth.getUser();
+    const myId = presenceUser?.id ?? null;
+    const localDisplayName = getQueueAttributionLabel();
+
     const { data, error } = await supabase
       .from("room_members")
       .select("user_id, role, display_name, last_seen_at, joined_at")
@@ -273,11 +279,16 @@ export function RoomClient({ roomId, hostToken }: Props) {
     const guests = rows.filter((r) => r.role === "guest");
     setGuestCount(guests.length);
     setGuestRoster(
-      guests.map((g) => ({
-        userId: g.user_id,
-        label: g.display_name?.trim() || "Anonymous",
-        lastSeenAt: g.last_seen_at,
-      }))
+      guests.map((g) => {
+        const fromDb = g.display_name?.trim() ?? "";
+        const useLocal =
+          !fromDb && myId != null && g.user_id === myId && localDisplayName;
+        return {
+          userId: g.user_id,
+          label: fromDb || (useLocal ? localDisplayName : "") || "Anonymous",
+          lastSeenAt: g.last_seen_at,
+        };
+      })
     );
   }, [roomId]);
 
@@ -528,14 +539,47 @@ export function RoomClient({ roomId, hostToken }: Props) {
     refreshPlaybackState,
   ]);
 
+  /** Push display name to `room_members` right after the name gate (don’t wait for heartbeat). */
+  useEffect(() => {
+    if (!ready || !profileGateDone) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("touch_room_presence", {
+          p_room_id: roomId,
+          p_display_name: getQueueAttributionLabel() ?? "",
+        });
+        if (error) {
+          console.error(
+            "touch_room_presence (sync):",
+            error.message,
+            "— apply migration 016_room_members_display_name if this persists."
+          );
+          return;
+        }
+        if (!cancelled) await loadRoomPresence();
+      } catch (e) {
+        console.error(e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, profileGateDone, roomId, loadRoomPresence]);
+
   useEffect(() => {
     if (!ready || !profileGateDone) return;
     const supabase = getSupabaseBrowserClient();
     const touch = () => {
-      void supabase.rpc("touch_room_presence", {
-        p_room_id: roomId,
-        p_display_name: getQueueAttributionLabel() ?? "",
-      });
+      void supabase
+        .rpc("touch_room_presence", {
+          p_room_id: roomId,
+          p_display_name: getQueueAttributionLabel() ?? "",
+        })
+        .then(({ error }) => {
+          if (error) console.error("touch_room_presence:", error.message);
+        });
     };
     touch();
     const interval = window.setInterval(touch, ROOM_PRESENCE_HEARTBEAT_MS);
