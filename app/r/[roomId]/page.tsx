@@ -24,10 +24,11 @@ export default async function RoomPage({
   searchParams,
 }: {
   params: Promise<{ roomId: string }>;
-  searchParams: Promise<{ h?: string }>;
+  searchParams: Promise<{ h?: string; new?: string }>;
 }) {
   const { roomId } = await params;
-  const { h } = await searchParams;
+  const { h, new: newRoom } = await searchParams;
+  const justCreated = newRoom === "1" || newRoom === "true";
 
   if (!UUID_RE.test(roomId)) {
     return (
@@ -45,7 +46,11 @@ export default async function RoomPage({
 
   return (
     <Suspense fallback={<RoomFallback />}>
-      <RoomClient roomId={roomId} hostToken={h ?? null} />
+      <RoomClient
+        roomId={roomId}
+        hostToken={h ?? null}
+        justCreated={justCreated}
+      />
     </Suspense>
   );
 }

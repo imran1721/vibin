@@ -52,6 +52,8 @@ import {
 type Props = {
   roomId: string;
   hostToken: string | null;
+  /** From `?new=1` after “Start a room” — loader says “Creating” instead of “Joining”. */
+  justCreated?: boolean;
 };
 
 const linkClass =
@@ -140,7 +142,7 @@ function CollapsiblePanel({
   );
 }
 
-export function RoomClient({ roomId, hostToken }: Props) {
+export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
@@ -190,6 +192,19 @@ export function RoomClient({ roomId, hostToken }: Props) {
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
+
+  useEffect(() => {
+    if (!justCreated || typeof window === "undefined") return;
+    const u = new URL(window.location.href);
+    if (u.searchParams.get("new") !== "1") return;
+    u.searchParams.delete("new");
+    const qs = u.searchParams.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `${u.pathname}${qs ? `?${qs}` : ""}${u.hash}`
+    );
+  }, [justCreated]);
 
   const onNowPlayingVisibleInQueueChange = useCallback((visible: boolean) => {
     setNowPlayingVisibleInQueueScroll(visible);
@@ -1000,7 +1015,7 @@ export function RoomClient({ roomId, hostToken }: Props) {
       <main
         className={`${shellMainClass} min-h-[100dvh] items-center justify-center`}
       >
-        <JoinRoomLoader />
+        <JoinRoomLoader creating={justCreated} />
       </main>
     );
   }

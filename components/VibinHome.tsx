@@ -34,7 +34,9 @@ export function VibinHome() {
       if (!row?.id || !row?.host_token) {
         throw new Error("Unexpected response from server");
       }
-      router.push(`/r/${row.id}?h=${encodeURIComponent(row.host_token)}`);
+      router.push(
+        `/r/${row.id}?h=${encodeURIComponent(row.host_token)}&new=1`
+      );
     } catch (e) {
       setError(
         e instanceof Error
@@ -54,9 +56,9 @@ export function VibinHome() {
 
   return (
     <div className="relative mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
-      {joinNavigating ? (
+      {busy || joinNavigating ? (
         <div className="vibin-page-bg fixed inset-0 z-[80]">
-          <JoinRoomLoader variant="overlay" />
+          <JoinRoomLoader variant="overlay" creating={busy} />
         </div>
       ) : null}
       <header className="space-y-3">
@@ -68,8 +70,9 @@ export function VibinHome() {
           <span className="-translate-y-1 sm:-translate-y-0.5">Vibin</span>
         </h1>
         <p className="text-muted-foreground max-w-prose text-base leading-relaxed sm:text-[1.05rem]">
-          Start a session, share the link, and let friends queue videos while you
-          host playback—one speaker, everyone adds tracks.
+          Create a room and share a link or QR invite. You run playback on one
+          device; everyone else queues YouTube videos from their phones and stays
+          in sync.
         </p>
       </header>
 

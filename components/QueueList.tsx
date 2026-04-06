@@ -441,8 +441,9 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
         <div className="mx-auto flex max-w-md flex-col items-center text-center">
           <p className="text-foreground text-sm font-medium">Nothing queued yet</p>
           <p className="text-pretty mt-1.5 max-w-[28ch] text-xs leading-snug sm:text-sm">
-            Search below and tap <span className="text-primary font-semibold">Add</span>{" "}
-            to drop a track in the line.
+            Use the YouTube search above and tap{" "}
+            <span className="text-primary font-semibold">Add</span> to queue a
+            track here.
           </p>
         </div>
       </div>

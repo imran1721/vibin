@@ -4,12 +4,26 @@ type Props = {
   /** Page: default padding; overlay: full-bleed for fixed overlay */
   variant?: "page" | "overlay";
   className?: string;
+  /** True when the host is creating a new room from home (not opening an invite link). */
+  creating?: boolean;
 };
 
 /**
- * Animated loader shown while joining or navigating into a room.
+ * Animated loader shown while creating a room or joining one.
  */
-export function JoinRoomLoader({ variant = "page", className = "" }: Props) {
+export function JoinRoomLoader({
+  variant = "page",
+  className = "",
+  creating = false,
+}: Props) {
+  const srOnly = creating
+    ? "Creating your room, please wait"
+    : "Joining the room, please wait";
+  const title = creating ? "Creating your room" : "Joining the room";
+  const caption = creating
+    ? "Starting your session…"
+    : "Syncing queue & playback…";
+
   const shell =
     variant === "overlay"
       ? "flex min-h-[100dvh] w-full flex-col items-center justify-center bg-background/88 px-6 backdrop-blur-md"
@@ -22,7 +36,7 @@ export function JoinRoomLoader({ variant = "page", className = "" }: Props) {
       aria-live="polite"
       aria-busy="true"
     >
-      <span className="sr-only">Joining the room, please wait</span>
+      <span className="sr-only">{srOnly}</span>
       <div className="flex flex-col items-center gap-7">
         <div className="relative grid size-[7.25rem] place-items-center">
           <div
@@ -49,10 +63,10 @@ export function JoinRoomLoader({ variant = "page", className = "" }: Props) {
 
         <div className="text-center">
           <p className="text-foreground font-display text-lg font-bold tracking-tight sm:text-xl">
-            Joining the room
+            {title}
           </p>
           <p className="text-muted-foreground vibin-join-caption mt-1.5 text-sm">
-            Syncing queue & playback…
+            {caption}
           </p>
         </div>
       </div>
