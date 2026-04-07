@@ -11,6 +11,7 @@ import {
 } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
+import type { Message as AblyMessage, RealtimeChannel as AblyRealtimeChannel } from "ably";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import {
@@ -48,6 +49,7 @@ import {
   setStoredPartyRoomId,
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
+import { getAblyClient } from "../../../lib/ably/client";
 
 type Props = {
   roomId: string;
@@ -184,6 +186,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
+  const ablyChannelRef = useRef<AblyRealtimeChannel | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
@@ -316,14 +319,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const notifyRoomActivity = useCallback(async (message: string) => {
     if (!shouldBroadcastActivity()) return;
-    const ch = roomChannelRef.current;
+    const ch = ablyChannelRef.current;
     if (!ch) return;
-    const status = await ch.send({
-      type: "broadcast",
-      event: "room_activity",
-      payload: { text: message },
-    });
-    if (status !== "ok") console.error("room_activity broadcast:", status);
+    try {
+      await ch.publish("room_activity", { text: message });
+    } catch (e) {
+      console.error("ably publish room_activity:", e);
+    }
   }, []);
 
   useLayoutEffect(() => {
@@ -461,11 +463,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       await loadRoomPresence();
 
       channel = supabase
-        .channel(`room:${roomId}`, {
-          config: {
-            broadcast: { self: false },
-          },
-        })
+        .channel(`room:${roomId}`)
         .on(
           "postgres_changes",
           {
@@ -519,12 +517,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             }
           }
         )
-        .on("broadcast", { event: "room_activity" }, ({ payload }) => {
-          const p = payload as { text?: unknown };
-          if (typeof p?.text === "string" && p.text.length > 0) {
-            setActivityToastMessage(p.text);
-          }
-        })
         .subscribe((status) => {
           if (!cancelled && status === "SUBSCRIBED") {
             roomChannelRef.current = channel;
@@ -537,6 +529,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     return () => {
       cancelled = true;
       roomChannelRef.current = null;
+      ablyChannelRef.current = null;
       if (channel) {
         try {
           getSupabaseBrowserClient().removeChannel(channel);
@@ -582,6 +575,44 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       cancelled = true;
     };
   }, [ready, profileGateDone, roomId, loadRoomPresence]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let unsub: (() => void) | null = null;
+    const ably = getAblyClient();
+    const ch = ably.channels.get(`room:${roomId}`);
+    ablyChannelRef.current = ch;
+
+    const onMsg = (msg: AblyMessage) => {
+      const p = msg.data as { text?: unknown } | null;
+      if (typeof p?.text === "string" && p.text.length > 0) {
+        setActivityToastMessage(p.text);
+      }
+    };
+
+    try {
+      ch.subscribe("room_activity", onMsg);
+      unsub = () => {
+        try {
+          ch.unsubscribe("room_activity", onMsg);
+        } catch {
+          /* ignore */
+        }
+      };
+    } catch (e) {
+      console.error("ably subscribe room_activity:", e);
+    }
+
+    return () => {
+      ablyChannelRef.current = null;
+      if (unsub) unsub();
+      try {
+        ably.channels.release(`room:${roomId}`);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, [ready, roomId]);
 
   useEffect(() => {
     if (!ready || !profileGateDone) return;
