@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
@@ -9,6 +9,11 @@ import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
 import { PwaInstallOption } from "@/components/PwaInstallOption";
 import { VibinMark } from "@/components/VibinMark";
 import { LegalFooter } from "@/components/LegalFooter";
+import {
+  clearPartySession,
+  readStoredHostRoom,
+  setStoredHostRoom,
+} from "@/lib/party-session";
 
 const scanQrBtnClass =
   "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -19,6 +24,38 @@ export function VibinHome() {
   const [busy, setBusy] = useState(false);
   const [joinNavigating, setJoinNavigating] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    const stored = readStoredHostRoom();
+    if (!stored) return;
+    setJoinNavigating(true);
+    router.replace(
+      `/r/${stored.roomId}?h=${encodeURIComponent(stored.hostToken)}`
+    );
+  }, [router]);
+
+  useEffect(() => {
+    let unsub: (() => void) | null = null;
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        setHasSession(!!session);
+        const { data } = supabase.auth.onAuthStateChange((_evt, next) => {
+          setHasSession(!!next);
+        });
+        unsub = () => data.subscription.unsubscribe();
+      } catch {
+        setHasSession(false);
+      }
+    })();
+    return () => {
+      if (unsub) unsub();
+    };
+  }, []);
 
   async function startRoom() {
     setError(null);
@@ -34,6 +71,7 @@ export function VibinHome() {
       if (!row?.id || !row?.host_token) {
         throw new Error("Unexpected response from server");
       }
+      setStoredHostRoom(row.id, row.host_token);
       router.push(
         `/r/${row.id}?h=${encodeURIComponent(row.host_token)}&new=1`
       );
@@ -105,6 +143,36 @@ export function VibinHome() {
       <div className="border-border flex flex-col gap-3 border-t pt-8">
         <PwaInstallOption />
       </div>
+
+      {hasSession ? (
+        <div className="border-border flex flex-col gap-3 border-t pt-8">
+          <button
+            type="button"
+            disabled={busy || joinNavigating}
+            onClick={() => {
+              setError(null);
+              setBusy(true);
+              void (async () => {
+                try {
+                  const supabase = getSupabaseBrowserClient();
+                  await clearPartySession(supabase);
+                } catch (e) {
+                  setError(e instanceof Error ? e.message : "Could not log out");
+                } finally {
+                  setBusy(false);
+                }
+              })();
+            }}
+            className="border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {busy ? "Logging out…" : "Log out"}
+          </button>
+          <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
+            Logging out will disconnect your saved YouTube connection on this device
+            (you can reconnect anytime).
+          </p>
+        </div>
+      ) : null}
 
       <LegalFooter />
 

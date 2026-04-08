@@ -42,10 +42,11 @@ import {
   type GuestListEntry,
 } from "@/components/GuestListDialog";
 import {
-  clearPartySession,
+  clearPartyRoomState,
   GUEST_VIDEO_PREF_KEY,
   readGuestShowSyncedVideoPref,
   setStoredPartyRoomId,
+  setStoredHostRoom,
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
 
@@ -237,8 +238,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const leaveToHome = useCallback(() => {
     void (async () => {
       try {
-        const supabase = getSupabaseBrowserClient();
-        await clearPartySession(supabase);
+        clearPartyRoomState();
       } catch {
         /* still navigate */
       }
@@ -457,7 +457,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }
 
       if (shouldResetPartySessionForRoom(roomId)) {
-        await clearPartySession(supabase);
+        clearPartyRoomState();
       }
 
       try {
@@ -496,6 +496,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }
 
       setStoredPartyRoomId(roomId);
+      if (hostToken) setStoredHostRoom(roomId, hostToken);
 
       const host = await checkHostRole();
       if (!cancelled) setIsHost(host);
