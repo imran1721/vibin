@@ -37,6 +37,12 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
 import { RoomDisplayNameDialog } from "@/components/RoomDisplayNameDialog";
+import { ColdStartRecommender } from "@/components/ColdStartRecommender";
+import {
+  ChatOverlay,
+  type ChatMessage,
+  type ChatRecsMessage,
+} from "@/components/ChatOverlay";
 import {
   GuestListDialog,
   type GuestListEntry,
@@ -188,6 +194,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     string | null
   >(null);
   const [profileGateDone, setProfileGateDone] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatAiTyping, setChatAiTyping] = useState(false);
+  const chatAiInFlightRef = useRef(false);
+  const chatAiHandledIdsRef = useRef<Set<string>>(new Set());
+  const chatAiPendingTextRef = useRef<string | null>(null);
+  const runAssistantRef = useRef<((text: string) => void) | null>(null);
+  const isHostRef = useRef(false);
+  const guestCountRef = useRef(0);
+  const queueSizeRef = useRef(0);
+  const nowPlayingTitleRef = useRef("");
+  const queuedVideoIdsRef = useRef<Set<string>>(new Set());
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
@@ -197,6 +216,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
+  const chatOpenRef = useRef(false);
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -225,6 +245,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     guestListOpenRef.current = guestListOpen;
   }, [guestListOpen]);
+
+  useEffect(() => {
+    chatOpenRef.current = chatOpen;
+    if (chatOpen) setChatUnread(0);
+  }, [chatOpen]);
+
+  useEffect(() => {
+    isHostRef.current = isHost;
+  }, [isHost]);
+
+  useEffect(() => {
+    guestCountRef.current = guestCount;
+  }, [guestCount]);
+
+  useEffect(() => {
+    queueSizeRef.current = queue.length;
+  }, [queue.length]);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
     setGuestShowSyncedVideo(show);
@@ -339,6 +376,200 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       console.error("supabase broadcast room_activity:", e);
     }
   }, []);
+
+  const sendChatMessage = useCallback(
+    async (text: string) => {
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      const senderUserId = currentUserIdRef.current;
+      const senderLabel = getQueueAttributionLabel() || "Anonymous";
+      const payload = {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        kind: "text",
+        text,
+        createdAtIso: new Date().toISOString(),
+        senderUserId,
+        senderLabel,
+      } satisfies ChatMessage;
+
+      // Optimistically add locally.
+      setChatMessages((prev) => [...prev, payload].slice(-80));
+
+      // If we're the host, trigger the assistant immediately. Realtime broadcast
+      // doesn't reliably echo messages back to the sender.
+      if (isHostRef.current && typeof text === "string" && text.trim().length > 0) {
+        chatAiHandledIdsRef.current.add(payload.id);
+        queueMicrotask(() => runAssistantRef.current?.(text));
+      }
+
+      try {
+        await ch.send({
+          type: "broadcast",
+          event: "room_chat",
+          payload,
+        });
+      } catch (e) {
+        console.error("supabase broadcast room_chat:", e);
+      }
+    },
+    []
+  );
+
+  const sendBotChatMessage = useCallback(async (text: string) => {
+    const ch = roomChannelRef.current;
+    if (!ch) return;
+    const payload: ChatMessage = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      kind: "text",
+      text,
+      createdAtIso: new Date().toISOString(),
+      senderUserId: null,
+      senderLabel: "Vibin AI",
+    };
+    setChatMessages((prev) => [...prev, payload].slice(-80));
+    try {
+      await ch.send({
+        type: "broadcast",
+        event: "room_chat",
+        payload,
+      });
+    } catch (e) {
+      console.error("supabase broadcast room_chat (bot):", e);
+    }
+  }, []);
+
+  const sendBotRecsMessage = useCallback(
+    async (title: string, items: YouTubeSearchItem[]) => {
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      const payload: ChatRecsMessage = {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        kind: "recs",
+        title,
+        createdAtIso: new Date().toISOString(),
+        senderUserId: null,
+        senderLabel: "Vibin AI",
+        items,
+      };
+
+      setChatMessages((prev) => [...prev, payload].slice(-120));
+      try {
+        await ch.send({
+          type: "broadcast",
+          event: "room_chat",
+          payload,
+        });
+      } catch (e) {
+        console.error("supabase broadcast room_chat (bot recs):", e);
+      }
+    },
+    []
+  );
+
+  const runAssistantForIncomingChat = useCallback(
+    async (incomingText: string) => {
+      if (!isHostRef.current) return;
+      if (chatAiInFlightRef.current) {
+        chatAiPendingTextRef.current = incomingText;
+        return;
+      }
+      chatAiInFlightRef.current = true;
+      setChatAiTyping(true);
+      try {
+        const res = await fetch("/api/recommendations/chat-assistant", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: incomingText,
+            nowPlaying: nowPlayingTitleRef.current,
+            queueSize: queueSizeRef.current,
+            guestCount: guestCountRef.current,
+          }),
+        });
+        const data = (await res.json()) as {
+          kind?: "clarify" | "suggest";
+          reply?: string;
+          queries?: string[];
+          error?: string;
+        };
+        if (!res.ok || !data.reply || !data.kind) {
+          console.error("chat-assistant:", data.error ?? "failed");
+          await sendBotChatMessage(
+            "I couldn’t generate suggestions right now. Try again in a moment."
+          );
+          return;
+        }
+
+        await sendBotChatMessage(data.reply);
+
+        if (data.kind === "suggest" && Array.isArray(data.queries)) {
+            const queries = data.queries
+              .map((q) => String(q || "").replace(/\s+/g, " ").trim())
+              .filter(Boolean)
+              .slice(0, 8);
+            const results = await Promise.all(
+              queries.map(async (q) => {
+                try {
+                  const r = await fetch(
+                    `/api/youtube/search?q=${encodeURIComponent(q)}`
+                  );
+                  const j = (await r.json()) as {
+                    items?: YouTubeSearchItem[];
+                    error?: string;
+                  };
+                  if (!r.ok) return null;
+                  return j.items?.[0] ?? null;
+                } catch {
+                  return null;
+                }
+              })
+            );
+            const seen = new Set<string>();
+            const deduped: YouTubeSearchItem[] = [];
+            const already = queuedVideoIdsRef.current;
+            for (const it of results) {
+              if (!it?.videoId) continue;
+              if (seen.has(it.videoId)) continue;
+              if (already.has(it.videoId)) continue;
+              seen.add(it.videoId);
+              deduped.push(it);
+            }
+            if (deduped.length > 0) {
+              await sendBotRecsMessage("Suggested tracks", deduped);
+            }
+        }
+      } catch (e) {
+        console.error(e);
+        await sendBotChatMessage(
+          "I hit a network error while generating suggestions. Try again."
+        );
+      } finally {
+        chatAiInFlightRef.current = false;
+        setChatAiTyping(false);
+        const pending = chatAiPendingTextRef.current;
+        chatAiPendingTextRef.current = null;
+        if (pending && pending !== incomingText) {
+          void runAssistantForIncomingChat(pending);
+        }
+      }
+    },
+    [sendBotChatMessage, sendBotRecsMessage]
+  );
+
+  useEffect(() => {
+    runAssistantRef.current = (text: string) => {
+      void runAssistantForIncomingChat(text);
+    };
+  }, [runAssistantForIncomingChat]);
 
   useLayoutEffect(() => {
     if (ready && hasCompletedDisplayProfile()) {
@@ -554,6 +785,101 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             setActivityToastMessage(p.text);
           }
         )
+        .on("broadcast", { event: "room_chat" }, (payload: unknown) => {
+          const raw = (payload as { payload?: unknown } | null | undefined)
+            ?.payload as unknown;
+
+          const asObj =
+            raw && typeof raw === "object"
+              ? (raw as Record<string, unknown>)
+              : null;
+          if (!asObj) return;
+
+          const isRecs = asObj.kind === "recs";
+          if (isRecs) {
+            if (typeof asObj.title !== "string" || asObj.title.trim().length === 0)
+              return;
+            if (!Array.isArray(asObj.items)) return;
+          } else {
+            if (typeof asObj.text !== "string" || asObj.text.trim().length === 0)
+              return;
+          }
+
+          const normalized: ChatMessage = isRecs
+            ? ({
+                id:
+                  typeof asObj.id === "string" && asObj.id
+                    ? asObj.id
+                    : `${Date.now()}`,
+                kind: "recs",
+                title:
+                  typeof asObj.title === "string" && asObj.title.trim().length > 0
+                    ? asObj.title
+                    : "Suggested tracks",
+                createdAtIso:
+                  typeof asObj.createdAtIso === "string" && asObj.createdAtIso
+                    ? asObj.createdAtIso
+                    : new Date().toISOString(),
+                senderUserId: null,
+                senderLabel: "Vibin AI",
+                items: Array.isArray(asObj.items)
+                  ? (asObj.items as YouTubeSearchItem[])
+                  : [],
+              } satisfies ChatRecsMessage)
+            : ({
+                id:
+                  typeof asObj.id === "string" && asObj.id
+                    ? asObj.id
+                    : `${Date.now()}`,
+                kind: "text",
+                text: typeof asObj.text === "string" ? asObj.text : "",
+                createdAtIso:
+                  typeof asObj.createdAtIso === "string" && asObj.createdAtIso
+                    ? asObj.createdAtIso
+                    : new Date().toISOString(),
+                senderUserId:
+                  typeof asObj.senderUserId === "string" ? asObj.senderUserId : null,
+                senderLabel:
+                  typeof asObj.senderLabel === "string" &&
+                  asObj.senderLabel.trim().length > 0
+                    ? asObj.senderLabel
+                    : "Anonymous",
+              } satisfies ChatMessage);
+
+          // Ignore our own message if it already exists (optimistic send).
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === normalized.id)) return prev;
+            return [...prev, normalized].slice(-80);
+          });
+
+          // Host-only AI assistant: reply to human messages.
+          if (
+            normalized.kind !== "recs" &&
+            normalized.senderUserId !== null &&
+            normalized.senderLabel !== "Vibin AI"
+          ) {
+            const handled = chatAiHandledIdsRef.current;
+            if (!handled.has(normalized.id)) {
+              handled.add(normalized.id);
+              // Keep set bounded.
+              if (handled.size > 250) {
+                chatAiHandledIdsRef.current = new Set(
+                  Array.from(handled).slice(-120)
+                );
+              }
+              // Let outer scope decide whether to run the assistant (via refs).
+              void runAssistantForIncomingChat(normalized.text);
+            }
+          }
+
+          if (
+            !chatOpenRef.current &&
+            normalized.senderUserId &&
+            normalized.senderUserId !== currentUserIdRef.current
+          ) {
+            setChatUnread((c) => Math.min(99, c + 1));
+          }
+        })
         .on(
           "postgres_changes",
           {
@@ -634,6 +960,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     loadRoomPresence,
     checkHostRole,
     refreshPlaybackState,
+    runAssistantForIncomingChat,
   ]);
 
   /** Push display name to `room_members` right after the name gate (don’t wait for heartbeat). */
@@ -733,6 +1060,88 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const queuedVideoIds = useMemo(
     () => new Set(queue.map((q) => q.video_id)),
     [queue]
+  );
+
+  useEffect(() => {
+    nowPlayingTitleRef.current = nowPlaying?.title ?? "";
+  }, [nowPlaying?.title]);
+
+  useEffect(() => {
+    queuedVideoIdsRef.current = queuedVideoIds;
+  }, [queuedVideoIds]);
+
+  const chatAskPresets = useMemo(
+    () => [
+      "Give us 10 upbeat crowd-pleasers",
+      "Chill late-night vibe (no sad songs)",
+      "Throwback hits (2000s/2010s)",
+      "Dance / EDM energy boost",
+      "Global hits across languages",
+      "Focus mode (minimal lyrics)",
+    ],
+    []
+  );
+
+  const runChatAsk = useCallback(
+    async (ask: string) => {
+      if (chatAiInFlightRef.current) return;
+      chatAiInFlightRef.current = true;
+      setChatAiTyping(true);
+      try {
+        const res = await fetch(
+          `/api/recommendations/cold-start?vibe=${encodeURIComponent(ask)}&count=10`
+        );
+        const data = (await res.json()) as { queries?: string[]; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Recommendation failed");
+
+        const queries = (data.queries ?? [])
+          .map((q) => String(q || "").replace(/\\s+/g, " ").trim())
+          .filter(Boolean)
+          .slice(0, 10);
+
+        if (queries.length === 0) throw new Error("No recommendations returned");
+
+        const results = await Promise.all(
+          queries.map(async (q) => {
+            try {
+              const r = await fetch(`/api/youtube/search?q=${encodeURIComponent(q)}`);
+              const j = (await r.json()) as {
+                items?: YouTubeSearchItem[];
+                error?: string;
+              };
+              if (!r.ok) return null;
+              return j.items?.[0] ?? null;
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        const seen = new Set<string>();
+        const deduped: YouTubeSearchItem[] = [];
+        for (const it of results) {
+          if (!it?.videoId) continue;
+          if (seen.has(it.videoId)) continue;
+          if (queuedVideoIds.has(it.videoId)) continue;
+          seen.add(it.videoId);
+          deduped.push(it);
+        }
+        if (deduped.length === 0) {
+          throw new Error("Could not resolve recommendations on YouTube");
+        }
+
+        await sendBotChatMessage(`Here are some picks for “${ask}”.`);
+        await sendBotRecsMessage(`Playlist: ${ask}`, deduped);
+      } catch (e) {
+        await sendBotChatMessage(
+          e instanceof Error ? e.message : "Recommendation failed"
+        );
+      } finally {
+        setChatAiTyping(false);
+        chatAiInFlightRef.current = false;
+      }
+    },
+    [queuedVideoIds, sendBotChatMessage, sendBotRecsMessage]
   );
 
   const currentQueueIndex = useMemo(() => {
@@ -1233,6 +1642,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
       <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
+          {isHost && queue.length === 0 ? (
+            <ColdStartRecommender
+              onAdd={handleAdd}
+              queuedVideoIds={queuedVideoIds}
+              disabled={controlsBusy || queueJumpBusy}
+            />
+          ) : null}
           <section aria-labelledby="search-heading" className="flex flex-col gap-1">
             <h2 id="search-heading" className="sr-only">
               Search YouTube
@@ -1464,6 +1880,21 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             currentUserId={sessionUserId}
             onRefresh={() => void loadRoomPresence()}
           />
+          <ChatOverlay
+            open={chatOpen}
+            onOpenChange={setChatOpen}
+            roomLabel={isHost ? "Host room" : "Guest room"}
+            myUserId={sessionUserId}
+            myLabel={getQueueAttributionLabel() || "Anonymous"}
+            messages={chatMessages}
+            aiTyping={chatAiTyping}
+            suggestions={
+              chatMessages.length === 0 ? chatAskPresets : undefined
+            }
+            onPickSuggestion={(text) => void runChatAsk(text)}
+            onAddRecItem={(it) => void handleAdd(it)}
+            onSend={sendChatMessage}
+          />
         </div>
       </div>
 
@@ -1475,6 +1906,34 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           className="border-primary/35 bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-1/2 z-40 inline-flex min-h-10 -translate-x-1/2 items-center justify-center rounded-full border px-4 py-2 text-xs font-bold shadow-lg shadow-black/20 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-45 sm:bottom-[max(1.1rem,env(safe-area-inset-bottom))] sm:px-5 sm:text-sm"
         >
           Go to now playing
+        </button>
+      ) : null}
+
+      {ready && profileGateDone ? (
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          className="border-border bg-card/80 text-foreground hover:bg-muted/80 focus-visible:ring-ring fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] right-[max(0.85rem,env(safe-area-inset-right))] z-40 inline-flex size-12 items-center justify-center rounded-full border shadow-lg shadow-black/15 backdrop-blur-md transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:bottom-[max(1.1rem,env(safe-area-inset-bottom))] sm:right-[max(1.1rem,env(safe-area-inset-right))]"
+          aria-label={chatUnread > 0 ? `Open chat (${chatUnread} unread)` : "Open chat"}
+          title="Chat"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-5"
+            aria-hidden
+          >
+            <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
+          </svg>
+          {chatUnread > 0 ? (
+            <span className="bg-primary text-primary-foreground absolute -right-1 -top-1 inline-flex min-w-6 items-center justify-center rounded-full px-1.5 py-0.5 text-[0.65rem] font-bold leading-none shadow">
+              {chatUnread > 99 ? "99+" : chatUnread}
+            </span>
+          ) : null}
         </button>
       ) : null}
     </main>
