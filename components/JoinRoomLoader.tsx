@@ -1,5 +1,3 @@
-import { VibinMark } from "@/components/VibinMark";
-
 type Props = {
   /** Page: default padding; overlay: full-bleed for fixed overlay */
   variant?: "page" | "overlay";

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { YouTubeSearchItem } from "@/lib/types";
 
 type Props = {
-  onAdd: (item: YouTubeSearchItem) => void;
+  onAdd: (item: YouTubeSearchItem) => Promise<boolean> | boolean;
   disabled?: boolean;
   /** YouTube `videoId`s already present in the room queue — show “Added” instead of “Add”. */
   queuedVideoIds?: ReadonlySet<string>;
@@ -28,6 +28,10 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
   const [items, setItems] = useState<YouTubeSearchItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addingIds, setAddingIds] = useState<Set<string>>(() => new Set());
+  const [locallyAddedIds, setLocallyAddedIds] = useState<Set<string>>(
+    () => new Set()
+  );
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 400);
@@ -134,7 +138,10 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
         aria-label="Search results"
       >
         {items.map((it) => {
-          const inQueue = queuedVideoIds?.has(it.videoId) ?? false;
+          const inQueue =
+            (queuedVideoIds?.has(it.videoId) ?? false) ||
+            locallyAddedIds.has(it.videoId);
+          const isAdding = addingIds.has(it.videoId);
           return (
             <li
               key={it.videoId}
@@ -157,12 +164,39 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
               </p>
               <button
                 type="button"
-                disabled={disabled || inQueue}
-                onClick={() => onAdd(it)}
-                aria-label={inQueue ? "Already in queue" : "Add to queue"}
+                disabled={disabled || inQueue || isAdding}
+                onClick={() => {
+                  if (disabled || inQueue || isAdding) return;
+                  const id = it.videoId;
+                  setAddingIds((prev) => {
+                    const next = new Set(prev);
+                    next.add(id);
+                    return next;
+                  });
+                  void Promise.resolve(onAdd(it))
+                    .then((ok) => {
+                      if (ok) {
+                        setLocallyAddedIds((prev) => {
+                          const next = new Set(prev);
+                          next.add(id);
+                          return next;
+                        });
+                      }
+                    })
+                    .finally(() => {
+                      setAddingIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(id);
+                        return next;
+                      });
+                    });
+                }}
+                aria-label={
+                  inQueue ? "Already in queue" : isAdding ? "Adding" : "Add to queue"
+                }
                 className={inQueue ? addedBtnClass : addBtnClass}
               >
-                {inQueue ? "Added" : "Add"}
+                {inQueue ? "Added" : isAdding ? "Adding…" : "Add"}
               </button>
             </li>
           );

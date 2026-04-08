@@ -11,7 +11,6 @@ import {
 } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import type { Message as AblyMessage, RealtimeChannel as AblyRealtimeChannel } from "ably";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import {
@@ -49,7 +48,6 @@ import {
   setStoredPartyRoomId,
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
-import { getAblyClient } from "../../../lib/ably/client";
 
 type Props = {
   roomId: string;
@@ -77,6 +75,12 @@ const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
 const HOST_PRUNE_STALE_GUESTS_MS = 90_000;
 /** Guests with no heartbeat for this long are removed by prune (host client or cron). */
 const STALE_GUEST_MINUTES = 3;
+
+type PostgresChangePayload<T> = {
+  eventType: "INSERT" | "UPDATE" | "DELETE";
+  new: Partial<T>;
+  old: Partial<T>;
+};
 
 function shortTrackTitle(title: string, max = 36): string {
   const t = title.trim();
@@ -186,12 +190,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
-  const ablyChannelRef = useRef<AblyRealtimeChannel | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
   const queueListRef = useRef<QueueListHandle | null>(null);
   const advanceInFlightRef = useRef(false);
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
   const prevJoinKeyRef = useRef<string>("");
+  const guestListOpenRef = useRef(false);
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -216,6 +220,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     setGuestShowSyncedVideo(readGuestShowSyncedVideoPref());
   }, []);
+
+  useEffect(() => {
+    guestListOpenRef.current = guestListOpen;
+  }, [guestListOpen]);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
     setGuestShowSyncedVideo(show);
@@ -319,12 +327,16 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const notifyRoomActivity = useCallback(async (message: string) => {
     if (!shouldBroadcastActivity()) return;
-    const ch = ablyChannelRef.current;
+    const ch = roomChannelRef.current;
     if (!ch) return;
     try {
-      await ch.publish("room_activity", { text: message });
+      await ch.send({
+        type: "broadcast",
+        event: "room_activity",
+        payload: { text: message, senderUserId: currentUserIdRef.current },
+      });
     } catch (e) {
-      console.error("ably publish room_activity:", e);
+      console.error("supabase broadcast room_activity:", e);
     }
   }, []);
 
@@ -391,9 +403,46 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     let cancelled = false;
     let channel: RealtimeChannel | null = null;
 
-    const onQueueEvent = () => {
-      void loadQueue();
-      void refreshPlaybackState();
+    const sortQueue = (items: QueueItem[]) => {
+      return [...items].sort((a, b) => {
+        const ta = Date.parse(String(a.created_at ?? ""));
+        const tb = Date.parse(String(b.created_at ?? ""));
+        if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta - tb;
+        return String(a.id).localeCompare(String(b.id));
+      });
+    };
+
+    const applyQueueChange = (payload: PostgresChangePayload<QueueItem>) => {
+      if (payload.eventType === "INSERT") {
+        const row = payload.new;
+        if (!row?.id) return;
+        setQueue((prev) => {
+          if (prev.some((q) => q.id === row.id)) return prev;
+          return sortQueue([...prev, row as QueueItem]);
+        });
+        return;
+      }
+
+      if (payload.eventType === "UPDATE") {
+        const row = payload.new;
+        if (!row?.id) return;
+        setQueue((prev) => {
+          const idx = prev.findIndex((q) => q.id === row.id);
+          if (idx === -1) return prev;
+          const next = [...prev];
+          next[idx] = row as QueueItem;
+          return sortQueue(next);
+        });
+        return;
+      }
+
+      if (payload.eventType === "DELETE") {
+        const id = payload.old?.id;
+        if (!id) return;
+        setQueue((prev) => prev.filter((q) => q.id !== id));
+        // Current item might have been removed (or pointer auto-updated) — refresh rooms row.
+        void refreshPlaybackState();
+      }
     };
 
     (async () => {
@@ -472,7 +521,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             table: "queue_items",
             filter: `room_id=eq.${roomId}`,
           },
-          onQueueEvent
+          (payload) =>
+            applyQueueChange(payload as unknown as PostgresChangePayload<QueueItem>)
         )
         .on(
           "postgres_changes",
@@ -487,6 +537,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           }
         )
         .on(
+          "broadcast",
+          { event: "room_activity" },
+          (payload: unknown) => {
+            const p = (payload as { payload?: unknown } | null | undefined)
+              ?.payload as { text?: unknown; senderUserId?: unknown } | undefined;
+            if (typeof p?.text !== "string" || p.text.length === 0) return;
+            if (
+              typeof p.senderUserId === "string" &&
+              p.senderUserId.length > 0 &&
+              p.senderUserId === currentUserIdRef.current
+            ) {
+              return;
+            }
+            setActivityToastMessage(p.text);
+          }
+        )
+        .on(
           "postgres_changes",
           {
             event: "*",
@@ -496,24 +563,46 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           },
           (payload) => {
             // Heartbeats only UPDATE last_seen_at — refetching on every tick would spam the room.
-            if (
-              payload.eventType === "INSERT" ||
-              payload.eventType === "DELETE"
-            ) {
-              void loadRoomPresence();
-            }
             if (payload.eventType === "INSERT") {
               const row = payload.new as {
                 user_id?: string;
                 role?: string;
+                display_name?: string | null;
+                last_seen_at?: string;
               };
-              if (
-                row.role === "guest" &&
-                row.user_id &&
-                row.user_id !== currentUserIdRef.current
-              ) {
-                setJoinToastMessage("A guest joined the room");
-              }
+              if (row.role !== "guest" || !row.user_id) return;
+
+              const joinedUserId = row.user_id;
+              const isMe = joinedUserId === currentUserIdRef.current;
+
+              setGuestCount((c) => c + 1);
+              setGuestRoster((prev) => {
+                if (prev.some((g) => g.userId === joinedUserId)) return prev;
+                const label = (row.display_name?.trim() ?? "") || "Anonymous";
+                return [
+                  ...prev,
+                  {
+                    userId: joinedUserId,
+                    label,
+                    lastSeenAt:
+                      (row.last_seen_at as string | undefined) ??
+                      new Date().toISOString(),
+                  },
+                ];
+              });
+
+              if (!isMe) setJoinToastMessage("A guest joined the room");
+              if (guestListOpenRef.current) void loadRoomPresence();
+              return;
+            }
+
+            if (payload.eventType === "DELETE") {
+              const row = payload.old as { user_id?: string; role?: string };
+              if (row.role !== "guest" || !row.user_id) return;
+              const leftUserId = row.user_id;
+              setGuestCount((c) => Math.max(0, c - 1));
+              setGuestRoster((prev) => prev.filter((g) => g.userId !== leftUserId));
+              if (guestListOpenRef.current) void loadRoomPresence();
             }
           }
         )
@@ -529,7 +618,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     return () => {
       cancelled = true;
       roomChannelRef.current = null;
-      ablyChannelRef.current = null;
       if (channel) {
         try {
           getSupabaseBrowserClient().removeChannel(channel);
@@ -575,44 +663,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       cancelled = true;
     };
   }, [ready, profileGateDone, roomId, loadRoomPresence]);
-
-  useEffect(() => {
-    if (!ready) return;
-    let unsub: (() => void) | null = null;
-    const ably = getAblyClient();
-    const ch = ably.channels.get(`room:${roomId}`);
-    ablyChannelRef.current = ch;
-
-    const onMsg = (msg: AblyMessage) => {
-      const p = msg.data as { text?: unknown } | null;
-      if (typeof p?.text === "string" && p.text.length > 0) {
-        setActivityToastMessage(p.text);
-      }
-    };
-
-    try {
-      ch.subscribe("room_activity", onMsg);
-      unsub = () => {
-        try {
-          ch.unsubscribe("room_activity", onMsg);
-        } catch {
-          /* ignore */
-        }
-      };
-    } catch (e) {
-      console.error("ably subscribe room_activity:", e);
-    }
-
-    return () => {
-      ablyChannelRef.current = null;
-      if (unsub) unsub();
-      try {
-        ably.channels.release(`room:${roomId}`);
-      } catch {
-        /* ignore */
-      }
-    };
-  }, [ready, roomId]);
 
   useEffect(() => {
     if (!ready || !profileGateDone) return;
@@ -710,12 +760,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         p_host_token: hostTokenForRpc,
       });
       if (error) console.error(error);
-      await loadQueue();
       await refreshPlaybackState();
     } finally {
       advanceInFlightRef.current = false;
     }
-  }, [roomId, hostTokenForRpc, loadQueue, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, refreshPlaybackState]);
 
   const goPrevious = useCallback(async () => {
     setControlsBusy(true);
@@ -732,12 +781,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           void notifyRoomActivity(`${label} went to the previous track`);
         }
       }
-      await loadQueue();
       await refreshPlaybackState();
     } finally {
       setControlsBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
 
   const goNext = useCallback(async () => {
     setControlsBusy(true);
@@ -754,12 +802,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           void notifyRoomActivity(`${label} skipped to the next track`);
         }
       }
-      await loadQueue();
       await refreshPlaybackState();
     } finally {
       setControlsBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
 
   const setPaused = useCallback(
     async (paused: boolean) => {
@@ -882,26 +929,46 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [ready, isHost, nowPlaying?.video_id, playbackPaused, roomId]);
 
   const handleAdd = useCallback(
-    async (item: YouTubeSearchItem) => {
+    async (item: YouTubeSearchItem): Promise<boolean> => {
       const supabase = getSupabaseBrowserClient();
       const label = getQueueAttributionLabel();
-      const { error } = await supabase.from("queue_items").insert({
-        room_id: roomId,
-        video_id: item.videoId,
-        title: item.title,
-        thumb_url: item.thumbUrl || null,
-        added_by: label,
-      });
-      if (error) console.error(error);
-      else if (label) {
-        void notifyRoomActivity(
-          `${label} added “${shortTrackTitle(item.title)}”`
-        );
+      const { data, error } = await supabase
+        .from("queue_items")
+        .insert({
+          room_id: roomId,
+          video_id: item.videoId,
+          title: item.title,
+          thumb_url: item.thumbUrl || null,
+          added_by: label,
+        })
+        .select("*")
+        .single();
+      if (error) {
+        console.error(error);
+        return false;
+      } else {
+        if (data?.id) {
+          setQueue((prev) => {
+            if (prev.some((q) => q.id === data.id)) return prev;
+            return [...prev, data as QueueItem].sort((a, b) => {
+              const ta = Date.parse(String(a.created_at ?? ""));
+              const tb = Date.parse(String(b.created_at ?? ""));
+              if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb)
+                return ta - tb;
+              return String(a.id).localeCompare(String(b.id));
+            });
+          });
+        }
+        if (label) {
+          void notifyRoomActivity(
+            `${label} added “${shortTrackTitle(item.title)}”`
+          );
+        }
+        void refreshPlaybackState();
+        return true;
       }
-      await loadQueue();
-      await refreshPlaybackState();
     },
-    [roomId, loadQueue, notifyRoomActivity, refreshPlaybackState]
+    [roomId, notifyRoomActivity, refreshPlaybackState]
   );
 
   const handleRemove = useCallback(
@@ -914,6 +981,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       });
       if (error) console.error(error);
       else {
+        setQueue((prev) => prev.filter((q) => q.id !== itemId));
         const label = getQueueAttributionLabel();
         if (label) {
           void notifyRoomActivity(
@@ -923,10 +991,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           );
         }
       }
-      await loadQueue();
-      await refreshPlaybackState();
+      void refreshPlaybackState();
     },
-    [hostTokenForRpc, loadQueue, notifyRoomActivity, queue, refreshPlaybackState]
+    [hostTokenForRpc, notifyRoomActivity, queue, refreshPlaybackState]
   );
 
   const handlePlayQueueItem = useCallback(
@@ -951,15 +1018,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             );
           }
         }
-        await loadQueue();
-        await refreshPlaybackState();
+        void refreshPlaybackState();
       } finally {
         setQueueJumpBusy(false);
       }
     },
     [
       hostTokenForRpc,
-      loadQueue,
       notifyRoomActivity,
       nowPlayingId,
       queue,
@@ -979,17 +1044,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         console.error(error);
         return;
       }
+      setQueue([]);
       const label = getQueueAttributionLabel();
       if (label) {
         void notifyRoomActivity(`${label} cleared the queue`);
       }
-      await loadQueue();
-      await refreshPlaybackState();
+      void refreshPlaybackState();
       setClearConfirmOpen(false);
     } finally {
       setClearQueueBusy(false);
     }
-  }, [roomId, hostTokenForRpc, loadQueue, notifyRoomActivity, refreshPlaybackState]);
+  }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
 
   const openGuestInvite = useCallback(() => {
     if (typeof window !== "undefined") {
