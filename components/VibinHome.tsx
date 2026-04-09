@@ -4,6 +4,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
+import { isAnonymousUser } from "@/lib/supabase/isAnonymousUser";
+import {
+  clearConnectGoogleIntent,
+  readConnectGoogleIntent,
+  setConnectGoogleIntent,
+} from "@/lib/connect-google-intent";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
 import { PwaInstallOption } from "@/components/PwaInstallOption";
@@ -25,6 +31,8 @@ export function VibinHome() {
   const [joinNavigating, setJoinNavigating] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
   const [hasSession, setHasSession] = useState(false);
+  const [isAnon, setIsAnon] = useState(true);
+  const [connectBusy, setConnectBusy] = useState(false);
 
   useEffect(() => {
     const stored = readStoredHostRoom();
@@ -44,12 +52,23 @@ export function VibinHome() {
           data: { session },
         } = await supabase.auth.getSession();
         setHasSession(!!session);
+        const { data: u } = await supabase.auth.getUser();
+        setIsAnon(isAnonymousUser(u.user));
         const { data } = supabase.auth.onAuthStateChange((_evt, next) => {
           setHasSession(!!next);
+          void (async () => {
+            try {
+              const { data: uu } = await supabase.auth.getUser();
+              setIsAnon(isAnonymousUser(uu.user));
+            } catch {
+              setIsAnon(true);
+            }
+          })();
         });
         unsub = () => data.subscription.unsubscribe();
       } catch {
         setHasSession(false);
+        setIsAnon(true);
       }
     })();
     return () => {
@@ -92,6 +111,77 @@ export function VibinHome() {
     router.push(`/r/${roomId}`);
   }
 
+  const runYouTubeConnect = async (returnTo: string) => {
+    const supabase = getSupabaseBrowserClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const t = session?.access_token ?? null;
+    if (!t) throw new Error("Not logged in");
+
+    const res = await fetch("/api/youtube/oauth/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ returnTo }),
+    });
+    const data = (await res.json()) as { url?: string; error?: string };
+    if (!res.ok || !data.url) {
+      throw new Error(data.error ?? "Could not start YouTube connect");
+    }
+    window.location.href = data.url;
+  };
+
+  const startConnectGoogle = async () => {
+    setError(null);
+    setConnectBusy(true);
+    const returnTo =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "/";
+    setConnectGoogleIntent(returnTo);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data } = await supabase.auth.getUser();
+      const anon = isAnonymousUser(data.user);
+      if (anon) {
+        const redirectTo =
+          typeof window !== "undefined" ? window.location.href : undefined;
+        const { error: authErr } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: redirectTo ? { redirectTo } : undefined,
+        });
+        if (authErr) throw authErr;
+        return;
+      }
+      await runYouTubeConnect(returnTo);
+    } catch (e) {
+      clearConnectGoogleIntent();
+      setError(e instanceof Error ? e.message : "Connect Google failed");
+      setConnectBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const { active, returnTo } = readConnectGoogleIntent();
+    if (!active) return;
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { data } = await supabase.auth.getUser();
+        if (isAnonymousUser(data.user)) return;
+        clearConnectGoogleIntent();
+        await runYouTubeConnect(returnTo);
+      } catch (e) {
+        clearConnectGoogleIntent();
+        setError(e instanceof Error ? e.message : "Connect Google failed");
+        setConnectBusy(false);
+      }
+    })();
+  }, []);
+
   return (
     <div className="relative mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
       {busy || joinNavigating ? (
@@ -123,6 +213,29 @@ export function VibinHome() {
         >
           {busy ? "Starting…" : "Start a room"}
         </button>
+      </div>
+
+      <div className="border-border flex flex-col gap-3 border-t pt-8">
+        <p className="text-foreground text-sm font-semibold">
+          Personalized suggestions
+        </p>
+        <p className="text-muted-foreground -mt-1 text-sm leading-relaxed">
+          Connect Google to curate suggestions from your YouTube playlists and
+          subscriptions.
+        </p>
+        <button
+          type="button"
+          disabled={connectBusy || busy || joinNavigating}
+          onClick={() => void startConnectGoogle()}
+          className="border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          {connectBusy ? "Connecting…" : isAnon ? "Connect Google" : "Connect YouTube"}
+        </button>
+        <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
+          {isAnon
+            ? "Anonymous sessions don’t save AI personalization. Logging in enables account-based curation."
+            : "You’re logged in — connect YouTube to import playlists and personalize suggestions."}
+        </p>
       </div>
 
       <div className="border-border flex flex-col gap-3 border-t pt-8">

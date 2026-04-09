@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBearerToken } from "@/lib/api-auth";
 import { createSupabaseUserClient } from "@/lib/supabase/user-client";
+import { isAnonymousUser } from "@/lib/supabase/isAnonymousUser";
 import { signYoutubeOAuthState } from "@/lib/youtube/oauth-state";
 
 const SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
     } = await supabase.auth.getUser();
     if (userError || !user) {
       return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+    }
+    if (isAnonymousUser(user)) {
+      return NextResponse.json({ error: "login_required" }, { status: 401 });
     }
 
     const clientId = process.env.GOOGLE_CLIENT_ID;

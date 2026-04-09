@@ -13,6 +13,12 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
+import { isAnonymousUser } from "@/lib/supabase/isAnonymousUser";
+import {
+  clearConnectGoogleIntent,
+  readConnectGoogleIntent,
+  setConnectGoogleIntent,
+} from "@/lib/connect-google-intent";
 import {
   getQueueAttributionLabel,
   hasCompletedDisplayProfile,
@@ -199,6 +205,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatAiTyping, setChatAiTyping] = useState(false);
   const [lightsOff, setLightsOff] = useState(false);
+  const [isAnon, setIsAnon] = useState(true);
+  const [connectBusy, setConnectBusy] = useState(false);
+  const [tasteStatus, setTasteStatus] = useState<
+    "unknown" | "not_started" | "indexing" | "ready" | "error"
+  >("unknown");
   const prevScrollLockRef = useRef<{
     htmlOverflow: string;
     bodyOverflow: string;
@@ -336,6 +347,77 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     } catch {
       /* private mode */
     }
+  }, []);
+
+  const runYouTubeConnect = useCallback(async (returnTo: string) => {
+    const supabase = getSupabaseBrowserClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const t = session?.access_token ?? null;
+    if (!t) throw new Error("Not logged in");
+
+    const res = await fetch("/api/youtube/oauth/start", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ returnTo }),
+    });
+    const data = (await res.json()) as { url?: string; error?: string };
+    if (!res.ok || !data.url) {
+      throw new Error(data.error ?? "Could not start YouTube connect");
+    }
+    window.location.href = data.url;
+  }, []);
+
+  const startConnectGoogle = useCallback(async () => {
+    setConnectBusy(true);
+    const returnTo =
+      typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "/";
+    setConnectGoogleIntent(returnTo);
+    try {
+      const supabase = getSupabaseBrowserClient();
+      const { data } = await supabase.auth.getUser();
+      const anon = isAnonymousUser(data.user);
+      if (anon) {
+        const redirectTo =
+          typeof window !== "undefined" ? window.location.href : undefined;
+        const { error: authErr } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: redirectTo ? { redirectTo } : undefined,
+        });
+        if (authErr) throw authErr;
+        return;
+      }
+      await runYouTubeConnect(returnTo);
+    } catch (e) {
+      clearConnectGoogleIntent();
+      setConnectBusy(false);
+      console.error(e);
+    }
+  }, [runYouTubeConnect]);
+
+  useEffect(() => {
+    const { active, returnTo } = readConnectGoogleIntent();
+    if (!active) return;
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { data } = await supabase.auth.getUser();
+        if (isAnonymousUser(data.user)) return;
+        clearConnectGoogleIntent();
+        await runYouTubeConnect(returnTo);
+      } catch (e) {
+        clearConnectGoogleIntent();
+        setConnectBusy(false);
+        console.error(e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const leaveToHome = useCallback(() => {
@@ -792,6 +874,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       const uid = joinedUser?.id ?? null;
       currentUserIdRef.current = uid;
       if (!cancelled) setSessionUserId(uid);
+      if (!cancelled) setIsAnon(isAnonymousUser(joinedUser));
 
       channel = supabase
         .channel(`room:${roomId}`)
@@ -1122,17 +1205,63 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     queuedVideoIdsRef.current = queuedVideoIds;
   }, [queuedVideoIds]);
 
-  const chatAskPresets = useMemo(
-    () => [
+  useEffect(() => {
+    if (!ready || !profileGateDone || !isHost || isAnon) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { data, error } = await supabase
+          .from("taste_profiles")
+          .select("status")
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          setTasteStatus("unknown");
+          return;
+        }
+        const s =
+          data && typeof data === "object"
+            ? (data as { status?: unknown }).status
+            : undefined;
+        if (
+          s === "not_started" ||
+          s === "indexing" ||
+          s === "ready" ||
+          s === "error"
+        ) {
+          setTasteStatus(s);
+        } else {
+          setTasteStatus("not_started");
+        }
+      } catch {
+        if (!cancelled) setTasteStatus("unknown");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, profileGateDone, isHost, isAnon]);
+
+  const chatAskPresets = useMemo(() => {
+    const base = [
       "Comedy — sketches and stand-up clips worth rewatching",
       "Explain something cool — science, history, or how things work",
       "Sports or gaming highlights, big moments only",
       "Food & cooking — satisfying recipes or food travel",
       "Party energy — music videos across genres",
       "Chill queue — nature, space, or ambient visuals",
-    ],
-    []
-  );
+    ];
+    const personalized =
+      isHost && !isAnon && tasteStatus === "ready"
+        ? ["Personalized picks (from my YouTube)"]
+        : [];
+    const buildProfile =
+      isHost && !isAnon && tasteStatus !== "ready"
+        ? ["Build my taste profile"]
+        : [];
+    return [...personalized, ...buildProfile, ...base];
+  }, [isHost, isAnon, tasteStatus]);
 
   const runChatAsk = useCallback(
     async (ask: string) => {
@@ -1141,6 +1270,41 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       chatAiInFlightRef.current = true;
       setChatAiTyping(true);
       try {
+        if (ask === "Build my taste profile") {
+          const r = await fetch("/api/recommendations/account/index", {
+            method: "POST",
+          });
+          const j = (await r.json()) as { ok?: boolean; error?: string };
+          if (!r.ok) {
+            throw new Error(j.error ?? "Indexing failed");
+          }
+          setTasteStatus("indexing");
+          await sendBotChatMessage("Got it — building your taste profile now.");
+          return;
+        }
+
+        if (ask === "Personalized picks (from my YouTube)") {
+          const r = await fetch("/api/recommendations/account/suggest", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ message: "Give me 8 picks for the room" }),
+          });
+          const j = (await r.json()) as {
+            reply?: string;
+            items?: YouTubeSearchItem[];
+            error?: string;
+            detail?: string;
+          };
+          if (!r.ok) {
+            throw new Error(j.detail ?? j.error ?? "Personalized suggestions failed");
+          }
+          if (j.reply) await sendBotChatMessage(j.reply);
+          if (Array.isArray(j.items) && j.items.length > 0) {
+            await sendBotRecsMessage("Personalized picks", j.items);
+          }
+          return;
+        }
+
         const res = await fetch(
           `/api/recommendations/cold-start?vibe=${encodeURIComponent(ask)}&count=10`
         );
@@ -1875,25 +2039,41 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   Connect your Google account to list your playlists. Add tracks,
                   add an entire playlist, or replace the queue.
                 </p>
-                <Suspense
-                  fallback={
-                    <p className="text-muted-foreground text-xs">
-                      Loading playlists…
+                {isHost && isAnon ? (
+                  <div className="border-border bg-card/60 rounded-2xl border px-4 py-3">
+                    <p className="text-foreground text-sm font-semibold">
+                      Connect Google to use playlists
                     </p>
-                  }
-                >
-                  <HostYoutubePlaylists
-                    roomId={roomId}
-                    queueAttributionLabel={getQueueAttributionLabel()}
-                    onQueueActivity={(msg) => void notifyRoomActivity(msg)}
-                    omitSectionChrome
-                    queuedVideoIds={queuedVideoIds}
-                    onImported={() => {
-                      void loadQueue();
-                      void refreshPlaybackState();
-                    }}
-                  />
-                </Suspense>
+                    <button
+                      type="button"
+                      onClick={() => void startConnectGoogle()}
+                      disabled={connectBusy}
+                      className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55"
+                    >
+                      {connectBusy ? "Connecting…" : "Connect Google"}
+                    </button>
+                  </div>
+                ) : (
+                  <Suspense
+                    fallback={
+                      <p className="text-muted-foreground text-xs">
+                        Loading playlists…
+                      </p>
+                    }
+                  >
+                    <HostYoutubePlaylists
+                      roomId={roomId}
+                      queueAttributionLabel={getQueueAttributionLabel()}
+                      onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                      omitSectionChrome
+                      queuedVideoIds={queuedVideoIds}
+                      onImported={() => {
+                        void loadQueue();
+                        void refreshPlaybackState();
+                      }}
+                    />
+                  </Suspense>
+                )}
               </div>
             ) : null}
           </section>

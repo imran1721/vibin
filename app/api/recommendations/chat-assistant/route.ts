@@ -48,14 +48,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const message = norm((body as any)?.message ?? "");
+  const bodyObj =
+    body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+
+  const message = norm(
+    typeof bodyObj?.message === "string" ? bodyObj.message : ""
+  );
   if (message.length < 1) {
     return NextResponse.json({ error: "Missing message" }, { status: 400 });
   }
 
-  const nowPlaying = norm((body as any)?.nowPlaying ?? "");
-  const queueSize = Number((body as any)?.queueSize ?? 0);
-  const guestCount = Number((body as any)?.guestCount ?? 0);
+  const nowPlaying = norm(
+    typeof bodyObj?.nowPlaying === "string" ? bodyObj.nowPlaying : ""
+  );
+  const queueSize = Number(
+    typeof bodyObj?.queueSize === "number" || typeof bodyObj?.queueSize === "string"
+      ? bodyObj.queueSize
+      : 0
+  );
+  const guestCount = Number(
+    typeof bodyObj?.guestCount === "number" || typeof bodyObj?.guestCount === "string"
+      ? bodyObj.guestCount
+      : 0
+  );
 
   const vertex = new VertexAI({
     project,
@@ -132,9 +147,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const kind = (parsed as any)?.kind;
-  const reply = (parsed as any)?.reply;
-  const queriesRaw = (parsed as any)?.queries;
+  const parsedObj =
+    parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  const kind = parsedObj?.kind;
+  const reply = parsedObj?.reply;
+  const queriesRaw = parsedObj?.queries;
 
   if (kind !== "clarify" && kind !== "suggest") {
     return NextResponse.json(
