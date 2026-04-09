@@ -5,6 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isAnonymousUser } from "@/lib/supabase/isAnonymousUser";
 import { refreshGoogleAccessToken } from "@/lib/youtube/google-access-token";
 import { getGcpAccessToken } from "@/lib/gcp-access-token";
+import { embedTextsVertex } from "@/lib/vertex-text-embeddings";
 
 type Playlist = { id: string; title: string; itemCount?: number };
 
@@ -86,43 +87,6 @@ async function listPlaylistItemTitles(
     if (!pageToken) break;
   }
   return out.slice(0, limit);
-}
-
-async function embedTexts(texts: string[]): Promise<number[][]> {
-  const project = env("GOOGLE_CLOUD_PROJECT");
-  const location = (process.env.VERTEX_LOCATION?.trim() || "us-central1").trim();
-  const model = (process.env.VERTEX_EMBEDDINGS_MODEL?.trim() || "text-embedding-004").trim();
-
-  const token = await getGcpAccessToken();
-  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${encodeURIComponent(
-    model
-  )}:predict`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      instances: texts.map((t) => ({ content: t })),
-    }),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Embeddings failed: ${res.status} ${txt.slice(0, 200)}`);
-  }
-
-  const data = (await res.json()) as {
-    predictions?: Array<{ embeddings?: { values?: number[] } }>;
-  };
-  const vectors =
-    data.predictions?.map((p) => p.embeddings?.values ?? []).filter((v) => v.length > 0) ??
-    [];
-  if (vectors.length !== texts.length) {
-    throw new Error("Embeddings returned unexpected shape");
-  }
-  return vectors;
 }
 
 async function upsertDatapoints(params: {
@@ -228,7 +192,7 @@ export async function POST(req: NextRequest) {
       texts.push({ id: `pl:${pl.id}`, text: doc });
     }
 
-    const vectors = await embedTexts(texts.map((t) => t.text));
+    const vectors = await embedTextsVertex(texts.map((t) => t.text));
 
     const vecLocation = (process.env.VERTEX_VECTOR_LOCATION?.trim() || process.env.VERTEX_LOCATION || "us-central1").trim();
     const indexId = env("VERTEX_VECTOR_INDEX_ID");

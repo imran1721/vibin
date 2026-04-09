@@ -4,6 +4,7 @@ import { createSupabaseUserClient } from "@/lib/supabase/user-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { isAnonymousUser } from "@/lib/supabase/isAnonymousUser";
 import { getGcpAccessToken } from "@/lib/gcp-access-token";
+import { embedTextVertex } from "@/lib/vertex-text-embeddings";
 import { VertexAI } from "@google-cloud/vertexai";
 import { vertexGoogleAuthOptions } from "@/lib/vertex-google-auth-options";
 
@@ -15,36 +16,6 @@ function env(name: string): string {
 
 function norm(s: string): string {
   return s.replace(/\s+/g, " ").trim();
-}
-
-async function embedQuery(text: string): Promise<number[]> {
-  const project = env("GOOGLE_CLOUD_PROJECT");
-  const location = (process.env.VERTEX_LOCATION?.trim() || "us-central1").trim();
-  const model = (process.env.VERTEX_EMBEDDINGS_MODEL?.trim() || "text-embedding-004").trim();
-
-  const token = await getGcpAccessToken();
-  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${encodeURIComponent(
-    model
-  )}:predict`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ instances: [{ content: text }] }),
-  });
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Embeddings failed: ${res.status} ${txt.slice(0, 200)}`);
-  }
-  const data = (await res.json()) as {
-    predictions?: Array<{ embeddings?: { values?: number[] } }>;
-  };
-  const v = data.predictions?.[0]?.embeddings?.values ?? null;
-  if (!v || v.length === 0) throw new Error("Embeddings returned empty vector");
-  return v;
 }
 
 type Neighbor = { datapointId: string; distance?: number; text?: string };
@@ -167,7 +138,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const qvec = await embedQuery(message);
+    const qvec = await embedTextVertex(message);
     const neighbors = await findNeighbors({
       location: vecLocation,
       project: projectId,
