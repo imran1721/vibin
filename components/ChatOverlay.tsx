@@ -48,8 +48,9 @@ const inputClass =
 const sendBtnClass =
   "bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl px-4 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50";
 
-const chipClass =
-  "border-border bg-card/70 text-foreground hover:bg-muted/70 focus-visible:ring-ring inline-flex min-h-9 max-w-full items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+/** Suggestion starters: multi-line OK, must not overflow narrow chat panes. */
+const suggestionChipClass =
+  "border-border bg-card/70 text-foreground hover:bg-muted/70 focus-visible:ring-ring inline-flex min-h-9 w-full min-w-0 items-center justify-start gap-1 rounded-2xl border px-3.5 py-2.5 text-left text-xs font-semibold leading-snug transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background [overflow-wrap:anywhere] break-words whitespace-normal";
 
 function isBlank(s: string) {
   return s.trim().length === 0;
@@ -251,18 +252,25 @@ export function ChatOverlay({
             ) : null}
 
             {suggestions && suggestions.length > 0 ? (
-              <li className="pt-3">
-                <p className="text-muted-foreground mb-2 text-[0.7rem] font-semibold uppercase tracking-wider">
+              <li className="border-border bg-card/35 min-w-0 w-full max-w-full rounded-2xl border px-4 py-3.5 pt-4">
+                <p className="text-foreground font-display text-sm font-bold leading-tight">
+                  Start a vibe
+                </p>
+                <p className="text-muted-foreground mt-1.5 max-w-prose text-xs leading-relaxed">
+                  Tap a starter to get video ideas in this chat, or type your own ask
+                  below.
+                </p>
+                <p className="text-muted-foreground mt-3 mb-2 text-[0.65rem] font-semibold uppercase tracking-wider">
                   Ask Vibin AI
                 </p>
-                <div className="flex max-w-full flex-wrap gap-2">
-                  {suggestions.map((s) => (
+                <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+                  {suggestions.map((s, i) => (
                     <button
-                      key={s}
+                      key={`${i}-${s.slice(0, 48)}`}
                       type="button"
-                      className={`${chipClass} truncate`}
+                      className={suggestionChipClass}
                       onClick={() => onPickSuggestion?.(s)}
-                      title="Get playlist suggestions"
+                      title="Search YouTube for ideas matching this theme"
                     >
                       {s}
                     </button>

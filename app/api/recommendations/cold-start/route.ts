@@ -7,18 +7,18 @@ const DEFAULT_COUNT = 12;
 
 function toVibePrompt(vibe: string): string {
   const v = vibe.trim().toLowerCase();
-  if (!v) return "upbeat popular mix, widely liked";
+  if (!v) return "popular, engaging YouTube videos a group would enjoy — varied topics";
 
   const preset: Record<string, string> = {
     "house-party":
-      "high-energy house party pop + edm bangers, widely liked, avoid niche",
-    chill: "chill cozy, mellow, modern, not sad, avoid long intros",
-    focus: "work focus, low distraction, minimal lyrics, ambient/electronic",
-    throwbacks: "2000s/2010s throwback hits, upbeat",
+      "high-energy group watch: viral clips, crowd-pleasing music videos, comedy, party energy",
+    chill: "calm cozy queue: mellow music, ambience, nature, soft-spoken explainers, no doom",
+    focus: "background-friendly: ambient, instrumental, slow docs, minimal talking heads",
+    throwbacks: "2000s–2010s nostalgia: music, ads, TV clips, iconic viral moments",
     "global-hits":
-      "global mainstream hits across languages, party-friendly, high energy",
+      "global mainstream variety: music, film moments, viral hits across languages, upbeat",
     surprise:
-      "fun variety but still coherent and broadly enjoyable, no meme edits",
+      "coherent rabbit hole of surprising but watchable YouTube — mixed genres, no trash bait",
   };
 
   return preset[v] ?? vibe;
@@ -72,12 +72,13 @@ export async function GET(req: NextRequest) {
     "Return ONLY valid JSON (no markdown, no code fences) with this exact shape:",
     `{"queries":[...]} `,
     "",
-    `Task: generate exactly ${count} YouTube search queries for music tracks that fit this vibe:`,
+    `Task: generate exactly ${count} YouTube search queries for videos that fit this theme (any category YouTube allows — music, comedy, docs, gaming, sports, food, explainers, etc.):`,
     `"${vibePrompt}"`,
     "",
     "Rules:",
-    '- Each query should look like a user search, e.g. "Artist - Song official audio".',
-    '- Prefer official audio/video; avoid "live", "cover", "sped up", "nightcore", "8D".',
+    '- Each query must read like a real YouTube search (e.g. "Band Name song official video", "Key & Peele best sketches", "Kurzgesagt black holes", "NBA best dunks compilation").',
+    "- Match the theme: use music queries when the theme is musical; use non-music queries when it is not.",
+    '- Prefer clear, high-quality uploads (official channel, known creators); avoid spammy patterns like "sped up", "nightcore", "8D", "part 47" unless the theme explicitly wants that.',
     "- Keep each query <= 80 characters.",
     "- Avoid duplicates and near-duplicates.",
     `- Output exactly ${count} queries.`,

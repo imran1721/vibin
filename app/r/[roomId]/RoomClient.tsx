@@ -37,7 +37,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
 import { RoomDisplayNameDialog } from "@/components/RoomDisplayNameDialog";
-import { ColdStartRecommender } from "@/components/ColdStartRecommender";
 import {
   ChatOverlay,
   type ChatMessage,
@@ -220,6 +219,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const chatOpenRef = useRef(false);
 
   const router = useRouter();
+  const vibeIntroStorageKey = `vibin_chat_vibe_intro_${roomId}`;
   const hostTokenForRpc = hostToken ?? "";
 
   useEffect(() => {
@@ -263,6 +263,26 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     queueSizeRef.current = queue.length;
   }, [queue.length]);
+
+  /** Host + empty queue: open chat once per tab so “Start a vibe” is visible without an extra page section. */
+  useEffect(() => {
+    if (!ready || !profileGateDone || !isHost || queue.length > 0) return;
+    if (chatMessages.length > 0) return;
+    try {
+      if (sessionStorage.getItem(vibeIntroStorageKey) === "1") return;
+      sessionStorage.setItem(vibeIntroStorageKey, "1");
+    } catch {
+      /* private mode */
+    }
+    setChatOpen(true);
+  }, [
+    ready,
+    profileGateDone,
+    isHost,
+    queue.length,
+    chatMessages.length,
+    vibeIntroStorageKey,
+  ]);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
     setGuestShowSyncedVideo(show);
@@ -546,7 +566,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               deduped.push(it);
             }
             if (deduped.length > 0) {
-              await sendBotRecsMessage("Suggested tracks", deduped);
+              await sendBotRecsMessage("Suggested videos", deduped);
             }
         }
       } catch (e) {
@@ -817,7 +837,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 title:
                   typeof asObj.title === "string" && asObj.title.trim().length > 0
                     ? asObj.title
-                    : "Suggested tracks",
+                    : "Suggested videos",
                 createdAtIso:
                   typeof asObj.createdAtIso === "string" && asObj.createdAtIso
                     ? asObj.createdAtIso
@@ -1074,18 +1094,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const chatAskPresets = useMemo(
     () => [
-      "Give us 10 upbeat crowd-pleasers",
-      "Chill late-night vibe (no sad songs)",
-      "Throwback hits (2000s/2010s)",
-      "Dance / EDM energy boost",
-      "Global hits across languages",
-      "Focus mode (minimal lyrics)",
+      "Comedy — sketches and stand-up clips worth rewatching",
+      "Explain something cool — science, history, or how things work",
+      "Sports or gaming highlights, big moments only",
+      "Food & cooking — satisfying recipes or food travel",
+      "Party energy — music videos across genres",
+      "Chill queue — nature, space, or ambient visuals",
     ],
     []
   );
 
   const runChatAsk = useCallback(
     async (ask: string) => {
+      if (!isHostRef.current) return;
       if (chatAiInFlightRef.current) return;
       chatAiInFlightRef.current = true;
       setChatAiTyping(true);
@@ -1097,7 +1118,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         if (!res.ok) throw new Error(data.error ?? "Recommendation failed");
 
         const queries = (data.queries ?? [])
-          .map((q) => String(q || "").replace(/\\s+/g, " ").trim())
+          .map((q) => String(q || "").replace(/\s+/g, " ").trim())
           .filter(Boolean)
           .slice(0, 10);
 
@@ -1133,7 +1154,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         }
 
         await sendBotChatMessage(`Here are some picks for “${ask}”.`);
-        await sendBotRecsMessage(`Playlist: ${ask}`, deduped);
+        await sendBotRecsMessage(`Picks: ${ask}`, deduped);
       } catch (e) {
         await sendBotChatMessage(
           e instanceof Error ? e.message : "Recommendation failed"
@@ -1644,13 +1665,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
       <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
-          {isHost && queue.length === 0 ? (
-            <ColdStartRecommender
-              onAdd={handleAdd}
-              queuedVideoIds={queuedVideoIds}
-              disabled={controlsBusy || queueJumpBusy}
-            />
-          ) : null}
           <section aria-labelledby="search-heading" className="flex flex-col gap-1">
             <h2 id="search-heading" className="sr-only">
               Search YouTube
@@ -1825,37 +1839,33 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 YouTube playlists
               </span>
             </button>
-            <CollapsiblePanel
-              id="yt-pl-panel"
-              open={playlistSectionOpen}
-              labelledBy="yt-pl-section-title"
-              marginClassWhenOpen="mt-[2px]"
-              innerClassName="flex flex-col gap-2.5"
-            >
-              <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
-                Connect your Google account to list your playlists. Add tracks,
-                add an entire playlist, or replace the queue.
-              </p>
-              <Suspense
-                fallback={
-                  <p className="text-muted-foreground text-xs">
-                    Loading playlists…
-                  </p>
-                }
-              >
-                <HostYoutubePlaylists
-                  roomId={roomId}
-                  queueAttributionLabel={getQueueAttributionLabel()}
-                  onQueueActivity={(msg) => void notifyRoomActivity(msg)}
-                  omitSectionChrome
-                  queuedVideoIds={queuedVideoIds}
-                  onImported={() => {
-                    void loadQueue();
-                    void refreshPlaybackState();
-                  }}
-                />
-              </Suspense>
-            </CollapsiblePanel>
+            {playlistSectionOpen ? (
+              <div className="mt-[2px] flex min-h-0 min-w-0 flex-col gap-2.5">
+                <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
+                  Connect your Google account to list your playlists. Add tracks,
+                  add an entire playlist, or replace the queue.
+                </p>
+                <Suspense
+                  fallback={
+                    <p className="text-muted-foreground text-xs">
+                      Loading playlists…
+                    </p>
+                  }
+                >
+                  <HostYoutubePlaylists
+                    roomId={roomId}
+                    queueAttributionLabel={getQueueAttributionLabel()}
+                    onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                    omitSectionChrome
+                    queuedVideoIds={queuedVideoIds}
+                    onImported={() => {
+                      void loadQueue();
+                      void refreshPlaybackState();
+                    }}
+                  />
+                </Suspense>
+              </div>
+            ) : null}
           </section>
 
           {isHost ? (
@@ -1891,7 +1901,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             messages={chatMessages}
             aiTyping={chatAiTyping}
             suggestions={
-              chatMessages.length === 0 ? chatAskPresets : undefined
+              isHost && chatMessages.length === 0
+                ? chatAskPresets
+                : undefined
             }
             onPickSuggestion={(text) => void runChatAsk(text)}
             onAddRecItem={(it) => void handleAdd(it)}
