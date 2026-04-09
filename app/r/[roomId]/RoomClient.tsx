@@ -49,6 +49,7 @@ import {
 } from "@/components/GuestListDialog";
 import {
   clearPartyRoomState,
+  clearStoredHostRoom,
   GUEST_VIDEO_PREF_KEY,
   readGuestShowSyncedVideoPref,
   setStoredPartyRoomId,
@@ -276,6 +277,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     void (async () => {
       try {
         clearPartyRoomState();
+        clearStoredHostRoom();
       } catch {
         /* still navigate */
       }

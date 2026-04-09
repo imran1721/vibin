@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
+import { vertexGoogleAuthOptions } from "@/lib/vertex-google-auth-options";
 
 const DEFAULT_MODEL_ID = "gemini-2.0-flash-001";
 const DEFAULT_COUNT = 12;
@@ -29,8 +30,6 @@ function normalizeQuery(q: string): string {
 
 export async function GET(req: NextRequest) {
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
-  const quotaProject =
-    (process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim() || project || "").trim();
   const location = (process.env.VERTEX_LOCATION?.trim() || "us-central1").trim();
   const modelId = (process.env.VERTEX_GEMINI_MODEL?.trim() || DEFAULT_MODEL_ID).trim();
 
@@ -52,16 +51,12 @@ export async function GET(req: NextRequest) {
     ? Math.max(3, Math.min(16, Math.floor(countParam)))
     : DEFAULT_COUNT;
 
-  // Vertex publisher models require a quota project (x-goog-user-project) when
-  // authenticating with user ADC. google-auth-library uses `quotaProjectId`.
   const vertex = new VertexAI({
     project,
     location,
-    // google-auth-library supports `quotaProjectId`, but the type exported through
-    // this SDK doesn't currently include it.
-    googleAuthOptions: quotaProject
-      ? ({ quotaProjectId: quotaProject } as unknown as Record<string, unknown>)
-      : undefined,
+    googleAuthOptions: vertexGoogleAuthOptions() as
+      | Record<string, unknown>
+      | undefined,
   });
   const model = vertex.getGenerativeModel({
     model: modelId,

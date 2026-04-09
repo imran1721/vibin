@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { VertexAI } from "@google-cloud/vertexai";
+import { vertexGoogleAuthOptions } from "@/lib/vertex-google-auth-options";
 
 const DEFAULT_MODEL_ID = "gemini-2.0-flash-001";
 
@@ -28,8 +29,6 @@ function extractFirstJsonObject(text: string): string | null {
 
 export async function POST(req: NextRequest) {
   const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
-  const quotaProject =
-    (process.env.GOOGLE_CLOUD_QUOTA_PROJECT?.trim() || project || "").trim();
   const location = (process.env.VERTEX_LOCATION?.trim() || "us-central1").trim();
   const modelId = (
     process.env.VERTEX_GEMINI_MODEL?.trim() || DEFAULT_MODEL_ID
@@ -61,9 +60,9 @@ export async function POST(req: NextRequest) {
   const vertex = new VertexAI({
     project,
     location,
-    googleAuthOptions: quotaProject
-      ? ({ quotaProjectId: quotaProject } as unknown as Record<string, unknown>)
-      : undefined,
+    googleAuthOptions: vertexGoogleAuthOptions() as
+      | Record<string, unknown>
+      | undefined,
   });
 
   const model = vertex.getGenerativeModel({
