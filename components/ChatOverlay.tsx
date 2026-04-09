@@ -73,8 +73,54 @@ export function ChatOverlay({
   const listRef = useRef<HTMLUListElement>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const prevScrollLockRef = useRef<{
+    htmlOverflow: string;
+    bodyOverflow: string;
+    bodyPosition: string;
+    bodyTop: string;
+    bodyWidth: string;
+    scrollY: number;
+  } | null>(null);
 
   const title = useMemo(() => `Chat · ${roomLabel}`, [roomLabel]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (typeof window === "undefined") return;
+
+    // Lock background scroll while modal is open.
+    // `dialog.showModal()` doesn't reliably prevent scrolling on iOS/Safari.
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY || 0;
+
+    prevScrollLockRef.current = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyPosition: body.style.position,
+      bodyTop: body.style.top,
+      bodyWidth: body.style.width,
+      scrollY,
+    };
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      const prev = prevScrollLockRef.current;
+      if (!prev) return;
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.position = prev.bodyPosition;
+      body.style.top = prev.bodyTop;
+      body.style.width = prev.bodyWidth;
+      window.scrollTo(0, prev.scrollY);
+      prevScrollLockRef.current = null;
+    };
+  }, [open]);
 
   useEffect(() => {
     const d = dialogRef.current;
