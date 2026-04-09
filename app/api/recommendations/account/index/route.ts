@@ -194,6 +194,15 @@ export async function POST(req: NextRequest) {
       .eq("user_id", user.id)
       .maybeSingle();
     if (!cred?.refresh_token) {
+      await admin.from("taste_profiles").upsert(
+        {
+          user_id: user.id,
+          status: "error",
+          error: "YouTube not connected",
+          indexed_at: null,
+        },
+        { onConflict: "user_id" }
+      );
       return NextResponse.json({ error: "youtube_not_connected" }, { status: 400 });
     }
 

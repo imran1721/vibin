@@ -82,6 +82,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Ensure a taste_profiles row exists so Supabase / UI can show status (not only after first index run).
+  await admin.from("taste_profiles").upsert(
+    {
+      user_id: state.uid,
+      status: "not_started",
+      error: null,
+      indexed_at: null,
+    },
+    { onConflict: "user_id", ignoreDuplicates: true }
+  );
+
   const target = new URL(state.returnTo, request.url);
   target.searchParams.set("youtube_connected", "1");
   return NextResponse.redirect(target);
