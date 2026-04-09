@@ -198,6 +198,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [chatUnread, setChatUnread] = useState(0);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatAiTyping, setChatAiTyping] = useState(false);
+  const [lightsOff, setLightsOff] = useState(false);
+  const prevScrollLockRef = useRef<{
+    htmlOverflow: string;
+    bodyOverflow: string;
+    bodyPosition: string;
+    bodyTop: string;
+    bodyWidth: string;
+    scrollY: number;
+  } | null>(null);
   const chatAiInFlightRef = useRef(false);
   const chatAiHandledIdsRef = useRef<Set<string>>(new Set());
   const chatAiPendingTextRef = useRef<string | null>(null);
@@ -263,6 +272,42 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     queueSizeRef.current = queue.length;
   }, [queue.length]);
+
+  useEffect(() => {
+    if (!lightsOff) return;
+    if (typeof window === "undefined") return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const scrollY = window.scrollY || 0;
+
+    prevScrollLockRef.current = {
+      htmlOverflow: html.style.overflow,
+      bodyOverflow: body.style.overflow,
+      bodyPosition: body.style.position,
+      bodyTop: body.style.top,
+      bodyWidth: body.style.width,
+      scrollY,
+    };
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+
+    return () => {
+      const prev = prevScrollLockRef.current;
+      if (!prev) return;
+      html.style.overflow = prev.htmlOverflow;
+      body.style.overflow = prev.bodyOverflow;
+      body.style.position = prev.bodyPosition;
+      body.style.top = prev.bodyTop;
+      body.style.width = prev.bodyWidth;
+      window.scrollTo(0, prev.scrollY);
+      prevScrollLockRef.current = null;
+    };
+  }, [lightsOff]);
 
   /** Host + empty queue: open chat once per tab so “Start a vibe” is visible without an extra page section. */
   useEffect(() => {
@@ -1897,6 +1942,27 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         </div>
       </div>
 
+      {lightsOff ? (
+        <div
+          className="fixed inset-0 z-[130] bg-black"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Lights off"
+          onClick={() => {}}
+        >
+          <div
+            className="mx-auto flex h-full w-full max-w-2xl flex-col justify-between px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="min-h-10" />
+
+            <div className="flex flex-col gap-3">
+              {null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showGoToNowPlayingFab ? (
         <button
           type="button"
@@ -1933,6 +1999,30 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               {chatUnread > 99 ? "99+" : chatUnread}
             </span>
           ) : null}
+        </button>
+      ) : null}
+
+      {ready && profileGateDone && isHost ? (
+        <button
+          type="button"
+          onClick={() => setLightsOff((v) => !v)}
+          className={`border-border focus-visible:ring-ring fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-[max(0.85rem,env(safe-area-inset-left))] z-[140] inline-flex size-12 items-center justify-center rounded-full border shadow-lg shadow-black/15 backdrop-blur-md transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:bottom-[max(1.1rem,env(safe-area-inset-bottom))] sm:left-[max(1.1rem,env(safe-area-inset-left))] ${lightsOff ? "bg-black/90 text-white hover:bg-black focus-visible:ring-offset-black" : "bg-card/80 text-foreground hover:bg-muted/80"}`}
+          aria-label={lightsOff ? "Turn lights on" : "Turn lights off"}
+          title={lightsOff ? "Lights on" : "Lights off"}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-5"
+            aria-hidden
+          >
+            <path d="M12 3a6 6 0 0 0-6 6c0 2.2 1.2 4.1 3 5.2V17a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-2.8c1.8-1.1 3-3 3-5.2a6 6 0 0 0-6-6Z" />
+            <path d="M9 21h6" />
+          </svg>
         </button>
       ) : null}
     </main>
