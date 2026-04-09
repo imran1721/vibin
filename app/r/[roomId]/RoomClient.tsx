@@ -222,6 +222,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const chatAiHandledIdsRef = useRef<Set<string>>(new Set());
   const chatAiPendingTextRef = useRef<string | null>(null);
   const runAssistantRef = useRef<((text: string) => void) | null>(null);
+  /** Same handlers as chat preset chips — typed messages must use this, not chat-assistant. */
+  const runChatAskRef = useRef<((ask: string) => void) | null>(null);
   const isHostRef = useRef(false);
   const guestCountRef = useRef(0);
   const queueSizeRef = useRef(0);
@@ -551,7 +553,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       // doesn't reliably echo messages back to the sender.
       if (isHostRef.current && typeof text === "string" && text.trim().length > 0) {
         chatAiHandledIdsRef.current.add(payload.id);
-        queueMicrotask(() => runAssistantRef.current?.(text));
+        const t = text.trim();
+        queueMicrotask(() => {
+          if (
+            t === "Build my taste profile" ||
+            t === "Personalized picks (from my YouTube)"
+          ) {
+            void runChatAskRef.current?.(t);
+          } else {
+            runAssistantRef.current?.(text);
+          }
+        });
       }
 
       try {
@@ -1360,6 +1372,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     },
     [queuedVideoIds, sendBotChatMessage, sendBotRecsMessage]
   );
+
+  useEffect(() => {
+    runChatAskRef.current = (ask: string) => {
+      void runChatAsk(ask);
+    };
+  }, [runChatAsk]);
 
   const currentQueueIndex = useMemo(() => {
     if (!effectiveNowId) return -1;
