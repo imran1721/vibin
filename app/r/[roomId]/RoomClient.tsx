@@ -661,40 +661,40 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         await sendBotChatMessage(data.reply);
 
         if (data.kind === "suggest" && Array.isArray(data.queries)) {
-            const queries = data.queries
-              .map((q) => String(q || "").replace(/\s+/g, " ").trim())
-              .filter(Boolean)
-              .slice(0, 8);
-            const results = await Promise.all(
-              queries.map(async (q) => {
-                try {
-                  const r = await fetch(
-                    `/api/youtube/search?q=${encodeURIComponent(q)}`
-                  );
-                  const j = (await r.json()) as {
-                    items?: YouTubeSearchItem[];
-                    error?: string;
-                  };
-                  if (!r.ok) return null;
-                  return j.items?.[0] ?? null;
-                } catch {
-                  return null;
-                }
-              })
-            );
-            const seen = new Set<string>();
-            const deduped: YouTubeSearchItem[] = [];
-            const already = queuedVideoIdsRef.current;
-            for (const it of results) {
-              if (!it?.videoId) continue;
-              if (seen.has(it.videoId)) continue;
-              if (already.has(it.videoId)) continue;
-              seen.add(it.videoId);
-              deduped.push(it);
-            }
-            if (deduped.length > 0) {
-              await sendBotRecsMessage("Suggested videos", deduped);
-            }
+          const queries = data.queries
+            .map((q) => String(q || "").replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+            .slice(0, 8);
+          const results = await Promise.all(
+            queries.map(async (q) => {
+              try {
+                const r = await fetch(
+                  `/api/youtube/search?q=${encodeURIComponent(q)}`
+                );
+                const j = (await r.json()) as {
+                  items?: YouTubeSearchItem[];
+                  error?: string;
+                };
+                if (!r.ok) return null;
+                return j.items?.[0] ?? null;
+              } catch {
+                return null;
+              }
+            })
+          );
+          const seen = new Set<string>();
+          const deduped: YouTubeSearchItem[] = [];
+          const already = queuedVideoIdsRef.current;
+          for (const it of results) {
+            if (!it?.videoId) continue;
+            if (seen.has(it.videoId)) continue;
+            if (already.has(it.videoId)) continue;
+            seen.add(it.videoId);
+            deduped.push(it);
+          }
+          if (deduped.length > 0) {
+            await sendBotRecsMessage("Suggested videos", deduped);
+          }
         }
       } catch (e) {
         console.error(e);
@@ -940,44 +940,44 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
           const normalized: ChatMessage = isRecs
             ? ({
-                id:
-                  typeof asObj.id === "string" && asObj.id
-                    ? asObj.id
-                    : `${Date.now()}`,
-                kind: "recs",
-                title:
-                  typeof asObj.title === "string" && asObj.title.trim().length > 0
-                    ? asObj.title
-                    : "Suggested videos",
-                createdAtIso:
-                  typeof asObj.createdAtIso === "string" && asObj.createdAtIso
-                    ? asObj.createdAtIso
-                    : new Date().toISOString(),
-                senderUserId: null,
-                senderLabel: "Vibin AI",
-                items: Array.isArray(asObj.items)
-                  ? (asObj.items as YouTubeSearchItem[])
-                  : [],
-              } satisfies ChatRecsMessage)
+              id:
+                typeof asObj.id === "string" && asObj.id
+                  ? asObj.id
+                  : `${Date.now()}`,
+              kind: "recs",
+              title:
+                typeof asObj.title === "string" && asObj.title.trim().length > 0
+                  ? asObj.title
+                  : "Suggested videos",
+              createdAtIso:
+                typeof asObj.createdAtIso === "string" && asObj.createdAtIso
+                  ? asObj.createdAtIso
+                  : new Date().toISOString(),
+              senderUserId: null,
+              senderLabel: "Vibin AI",
+              items: Array.isArray(asObj.items)
+                ? (asObj.items as YouTubeSearchItem[])
+                : [],
+            } satisfies ChatRecsMessage)
             : ({
-                id:
-                  typeof asObj.id === "string" && asObj.id
-                    ? asObj.id
-                    : `${Date.now()}`,
-                kind: "text",
-                text: typeof asObj.text === "string" ? asObj.text : "",
-                createdAtIso:
-                  typeof asObj.createdAtIso === "string" && asObj.createdAtIso
-                    ? asObj.createdAtIso
-                    : new Date().toISOString(),
-                senderUserId:
-                  typeof asObj.senderUserId === "string" ? asObj.senderUserId : null,
-                senderLabel:
-                  typeof asObj.senderLabel === "string" &&
+              id:
+                typeof asObj.id === "string" && asObj.id
+                  ? asObj.id
+                  : `${Date.now()}`,
+              kind: "text",
+              text: typeof asObj.text === "string" ? asObj.text : "",
+              createdAtIso:
+                typeof asObj.createdAtIso === "string" && asObj.createdAtIso
+                  ? asObj.createdAtIso
+                  : new Date().toISOString(),
+              senderUserId:
+                typeof asObj.senderUserId === "string" ? asObj.senderUserId : null,
+              senderLabel:
+                typeof asObj.senderLabel === "string" &&
                   asObj.senderLabel.trim().length > 0
-                    ? asObj.senderLabel
-                    : "Anonymous",
-              } satisfies ChatMessage);
+                  ? asObj.senderLabel
+                  : "Anonymous",
+            } satisfies ChatMessage);
 
           // Ignore our own message if it already exists (optimistic send).
           setChatMessages((prev) => {
@@ -2128,7 +2128,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           role="dialog"
           aria-modal="true"
           aria-label="Lights off"
-          onClick={() => {}}
+          onClick={() => { }}
         >
           <div
             className="mx-auto flex h-full w-full max-w-2xl flex-col justify-between bg-black px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] [touch-action:none]"
