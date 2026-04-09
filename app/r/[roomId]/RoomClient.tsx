@@ -1283,8 +1283,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       setChatAiTyping(true);
       try {
         if (ask === "Build my taste profile") {
+          const supabase = getSupabaseBrowserClient();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          const accessToken = session?.access_token;
+          if (!accessToken) {
+            throw new Error("Sign in required to build your taste profile.");
+          }
           const r = await fetch("/api/recommendations/account/index", {
             method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
           });
           const j = (await r.json()) as { ok?: boolean; error?: string };
           if (!r.ok) {
@@ -1296,9 +1305,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         }
 
         if (ask === "Personalized picks (from my YouTube)") {
+          const supabase = getSupabaseBrowserClient();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          const accessToken = session?.access_token;
+          if (!accessToken) {
+            throw new Error("Sign in required for personalized picks.");
+          }
           const r = await fetch("/api/recommendations/account/suggest", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "content-type": "application/json",
+            },
             body: JSON.stringify({ message: "Give me 8 picks for the room" }),
           });
           const j = (await r.json()) as {
