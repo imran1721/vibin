@@ -1944,14 +1944,14 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
       {lightsOff ? (
         <div
-          className="fixed inset-0 z-[130] bg-black"
+          className="fixed inset-0 z-[130] h-[100dvh] w-[100vw] bg-black overscroll-none"
           role="dialog"
           aria-modal="true"
           aria-label="Lights off"
           onClick={() => {}}
         >
           <div
-            className="mx-auto flex h-full w-full max-w-2xl flex-col justify-between px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+            className="mx-auto flex h-full w-full max-w-2xl flex-col justify-between bg-black px-6 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] [touch-action:none]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="min-h-10" />
