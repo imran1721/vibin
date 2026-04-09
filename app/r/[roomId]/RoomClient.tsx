@@ -625,21 +625,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }
   }, [roomId]);
 
-  const checkHostRole = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return false;
-    const { data } = await supabase
-      .from("room_members")
-      .select("role")
-      .eq("room_id", roomId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    return data?.role === "host";
-  }, [roomId]);
-
   useEffect(() => {
     const joinKey = `${roomId}|${hostToken ?? ""}`;
     const prevJoinKey = prevJoinKeyRef.current;
@@ -751,8 +736,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       setStoredPartyRoomId(roomId);
       if (hostToken) setStoredHostRoom(roomId, hostToken);
 
-      const host = await checkHostRole();
-      if (!cancelled) setIsHost(host);
+      // Hosting status: if the URL includes a valid host token, we can treat this
+      // client as host immediately. This avoids an extra round-trip on room create.
+      // (We still keep `checkHostRole` for any later verification if needed.)
+      if (!cancelled) setIsHost(!!hostToken);
 
       const {
         data: { user: joinedUser },
@@ -760,10 +747,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       const uid = joinedUser?.id ?? null;
       currentUserIdRef.current = uid;
       if (!cancelled) setSessionUserId(uid);
-
-      await loadQueue();
-      await refreshPlaybackState();
-      await loadRoomPresence();
 
       channel = supabase
         .channel(`room:${roomId}`)
@@ -958,10 +941,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         .subscribe((status) => {
           if (!cancelled && status === "SUBSCRIBED") {
             roomChannelRef.current = channel;
+            setReady(true);
           }
         });
 
-      if (!cancelled) setReady(true);
+      // Don’t block interactivity on initial data fetches; hydrate in parallel.
+      // These reads can be slower than realtime subscribe + basic render.
+      void Promise.all([loadQueue(), refreshPlaybackState(), loadRoomPresence()]);
     })();
 
     return () => {
@@ -980,7 +966,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     hostToken,
     loadQueue,
     loadRoomPresence,
-    checkHostRole,
     refreshPlaybackState,
     runAssistantForIncomingChat,
   ]);
