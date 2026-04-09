@@ -100,6 +100,14 @@ function shortTrackTitle(title: string, max = 36): string {
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
+function normChatPreset(s: string): string {
+  return s.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isBuildTasteProfileAsk(ask: string): boolean {
+  return normChatPreset(ask) === "build my taste profile";
+}
+
 const collapsibleTriggerClass =
   "text-foreground hover:bg-muted/50 focus-visible:ring-ring group flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pl-0.5 pr-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:gap-2 sm:pl-1";
 
@@ -225,6 +233,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   /** Same handlers as chat preset chips — typed messages must use this, not chat-assistant. */
   const runChatAskRef = useRef<((ask: string) => void) | null>(null);
   const isHostRef = useRef(false);
+  const isAnonRef = useRef(true);
   const guestCountRef = useRef(0);
   const queueSizeRef = useRef(0);
   const nowPlayingTitleRef = useRef("");
@@ -277,6 +286,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     isHostRef.current = isHost;
   }, [isHost]);
+
+  useEffect(() => {
+    isAnonRef.current = isAnon;
+  }, [isAnon]);
 
   useEffect(() => {
     guestCountRef.current = guestCount;
@@ -555,13 +568,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         chatAiHandledIdsRef.current.add(payload.id);
         const t = text.trim();
         queueMicrotask(() => {
-          if (
-            t === "Build my taste profile" ||
-            t === "Personalized picks (from my YouTube)"
-          ) {
-            void runChatAskRef.current?.(t);
-          } else {
+          if (isAnonRef.current) {
             runAssistantRef.current?.(text);
+          } else {
+            void runChatAskRef.current?.(t);
           }
         });
       }
@@ -1264,15 +1274,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       "Party energy — music videos across genres",
       "Chill queue — nature, space, or ambient visuals",
     ];
-    const personalized =
-      isHost && !isAnon && tasteStatus === "ready"
-        ? ["Personalized picks (from my YouTube)"]
-        : [];
     const buildProfile =
       isHost && !isAnon && tasteStatus !== "ready"
         ? ["Build my taste profile"]
         : [];
-    return [...personalized, ...buildProfile, ...base];
+    return [...buildProfile, ...base];
   }, [isHost, isAnon, tasteStatus]);
 
   const runChatAsk = useCallback(
@@ -1282,7 +1288,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       chatAiInFlightRef.current = true;
       setChatAiTyping(true);
       try {
-        if (ask === "Build my taste profile") {
+        if (isBuildTasteProfileAsk(ask)) {
           const supabase = getSupabaseBrowserClient();
           const {
             data: { session },
@@ -1304,83 +1310,97 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           return;
         }
 
-        if (ask === "Personalized picks (from my YouTube)") {
-          const supabase = getSupabaseBrowserClient();
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          const accessToken = session?.access_token;
-          if (!accessToken) {
-            throw new Error("Sign in required for personalized picks.");
+        const runColdStartVibe = async (vibe: string) => {
+          const res = await fetch(
+            `/api/recommendations/cold-start?vibe=${encodeURIComponent(vibe)}&count=10`
+          );
+          const data = (await res.json()) as { queries?: string[]; error?: string };
+          if (!res.ok) throw new Error(data.error ?? "Recommendation failed");
+
+          const queries = (data.queries ?? [])
+            .map((q) => String(q || "").replace(/\s+/g, " ").trim())
+            .filter(Boolean)
+            .slice(0, 10);
+
+          if (queries.length === 0) throw new Error("No recommendations returned");
+
+          const results = await Promise.all(
+            queries.map(async (q) => {
+              try {
+                const r = await fetch(`/api/youtube/search?q=${encodeURIComponent(q)}`);
+                const j = (await r.json()) as {
+                  items?: YouTubeSearchItem[];
+                  error?: string;
+                };
+                if (!r.ok) return null;
+                return j.items?.[0] ?? null;
+              } catch {
+                return null;
+              }
+            })
+          );
+
+          const seen = new Set<string>();
+          const deduped: YouTubeSearchItem[] = [];
+          for (const it of results) {
+            if (!it?.videoId) continue;
+            if (seen.has(it.videoId)) continue;
+            if (queuedVideoIds.has(it.videoId)) continue;
+            seen.add(it.videoId);
+            deduped.push(it);
           }
-          const r = await fetch("/api/recommendations/account/suggest", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({ message: "Give me 8 picks for the room" }),
-          });
-          const j = (await r.json()) as {
-            reply?: string;
-            items?: YouTubeSearchItem[];
-            error?: string;
-            detail?: string;
-          };
-          if (!r.ok) {
-            throw new Error(j.detail ?? j.error ?? "Personalized suggestions failed");
+          if (deduped.length === 0) {
+            throw new Error("Could not resolve recommendations on YouTube");
           }
+
+          await sendBotChatMessage(`Here are some picks for “${vibe}”.`);
+          await sendBotRecsMessage(`Picks: ${vibe}`, deduped);
+        };
+
+        if (isAnonRef.current) {
+          await runColdStartVibe(ask);
+          return;
+        }
+
+        const supabase = getSupabaseBrowserClient();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        const accessToken = session?.access_token;
+        if (!accessToken) {
+          throw new Error("Sign in required.");
+        }
+        const r = await fetch("/api/recommendations/account/suggest", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ message: ask }),
+        });
+        const j = (await r.json()) as {
+          reply?: string;
+          items?: YouTubeSearchItem[];
+          error?: string;
+          detail?: string;
+        };
+        if (r.ok) {
           if (j.reply) await sendBotChatMessage(j.reply);
           if (Array.isArray(j.items) && j.items.length > 0) {
             await sendBotRecsMessage("Personalized picks", j.items);
           }
           return;
         }
-
-        const res = await fetch(
-          `/api/recommendations/cold-start?vibe=${encodeURIComponent(ask)}&count=10`
-        );
-        const data = (await res.json()) as { queries?: string[]; error?: string };
-        if (!res.ok) throw new Error(data.error ?? "Recommendation failed");
-
-        const queries = (data.queries ?? [])
-          .map((q) => String(q || "").replace(/\s+/g, " ").trim())
-          .filter(Boolean)
-          .slice(0, 10);
-
-        if (queries.length === 0) throw new Error("No recommendations returned");
-
-        const results = await Promise.all(
-          queries.map(async (q) => {
-            try {
-              const r = await fetch(`/api/youtube/search?q=${encodeURIComponent(q)}`);
-              const j = (await r.json()) as {
-                items?: YouTubeSearchItem[];
-                error?: string;
-              };
-              if (!r.ok) return null;
-              return j.items?.[0] ?? null;
-            } catch {
-              return null;
-            }
-          })
-        );
-
-        const seen = new Set<string>();
-        const deduped: YouTubeSearchItem[] = [];
-        for (const it of results) {
-          if (!it?.videoId) continue;
-          if (seen.has(it.videoId)) continue;
-          if (queuedVideoIds.has(it.videoId)) continue;
-          seen.add(it.videoId);
-          deduped.push(it);
+        const errCode = typeof j.error === "string" ? j.error : "";
+        if (r.status === 409 && errCode === "not_indexed") {
+          await runColdStartVibe(ask);
+          return;
         }
-        if (deduped.length === 0) {
-          throw new Error("Could not resolve recommendations on YouTube");
+        if (r.status === 401 && errCode === "login_required") {
+          await runColdStartVibe(ask);
+          return;
         }
-
-        await sendBotChatMessage(`Here are some picks for “${ask}”.`);
-        await sendBotRecsMessage(`Picks: ${ask}`, deduped);
+        throw new Error(j.detail ?? j.error ?? "Personalized suggestions failed");
       } catch (e) {
         await sendBotChatMessage(
           e instanceof Error ? e.message : "Recommendation failed"
