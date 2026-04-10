@@ -6,7 +6,7 @@ type Props = {
   message: string | null;
   onDismiss: () => void;
   /** Stack a second toast below the default join toast. */
-  variant?: "default" | "stacked";
+  variant?: "default" | "stacked" | "stacked2";
 };
 
 export function RoomGuestJoinToast({
@@ -25,6 +25,8 @@ export function RoomGuestJoinToast({
   const topClass =
     variant === "stacked"
       ? "top-[max(10.5rem,env(safe-area-inset-top)+9rem)]"
+      : variant === "stacked2"
+        ? "top-[max(16.5rem,env(safe-area-inset-top)+15rem)]"
       : "top-[max(4.5rem,env(safe-area-inset-top)+3rem)]";
 
   return (

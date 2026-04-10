@@ -8,6 +8,7 @@ import {
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 import type { QueueItem } from "@/lib/types";
 
@@ -53,13 +54,13 @@ type Props = {
 };
 
 const miniBtn =
-  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex size-8 shrink-0 touch-manipulation items-center justify-center rounded-md border leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:size-9 sm:rounded-lg";
+  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-10 min-w-10 shrink-0 touch-manipulation items-center justify-center rounded-lg border leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-9 sm:min-w-9";
 
 const miniPlayBtn =
-  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 min-w-[3rem] shrink-0 touch-manipulation items-center justify-center rounded-md border px-1.5 leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-9 sm:min-w-[3.25rem] sm:rounded-lg sm:px-2";
+  "border-border bg-card/90 text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-10 min-w-[3.35rem] shrink-0 touch-manipulation items-center justify-center rounded-lg border px-2 leading-none transition-colors [-webkit-tap-highlight-color:transparent] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-9 sm:min-w-[3.25rem]";
 
 const playbackGlyphClass =
-  "size-[1.0625rem] shrink-0 sm:size-[1.1875rem]";
+  "size-[1.15rem] shrink-0 sm:size-[1.1875rem]";
 
 function IconPrevious() {
   return (
@@ -162,7 +163,7 @@ function NowPlayingPlayback({
 
   return (
     <div
-      className="border-border bg-background/70 flex shrink-0 flex-wrap items-center justify-center gap-0.5 border-t px-1.5 py-1.5 sm:border-l sm:border-t-0 sm:px-2 sm:py-2"
+      className="border-border bg-background/70 flex shrink-0 flex-wrap items-center justify-center gap-1 border-t px-2 py-2 sm:border-l sm:border-t-0 sm:gap-0.5 sm:px-2 sm:py-2"
       role="group"
       aria-label="Playback controls"
     >
@@ -179,7 +180,7 @@ function NowPlayingPlayback({
       {onSeekDelta ? (
         <button
           type="button"
-          className={`${miniBtn} min-w-[2.75rem] text-[0.65rem] font-bold sm:min-w-12 sm:text-xs`}
+          className={`${miniBtn} min-w-[3.15rem] text-[0.7rem] font-bold sm:min-w-12 sm:text-xs`}
           disabled={d}
           onClick={() => onSeekDelta(-10)}
           title="Back 10 seconds"
@@ -214,7 +215,7 @@ function NowPlayingPlayback({
       {onSeekDelta ? (
         <button
           type="button"
-          className={`${miniBtn} min-w-[2.75rem] text-[0.65rem] font-bold sm:min-w-12 sm:text-xs`}
+          className={`${miniBtn} min-w-[3.15rem] text-[0.7rem] font-bold sm:min-w-12 sm:text-xs`}
           disabled={d}
           onClick={() => onSeekDelta(10)}
           title="Forward 10 seconds"
@@ -248,7 +249,7 @@ export function NowPlayingQueueRow({
   return (
     <Tag
       data-queue-id={item.id}
-      className={`border-primary/45 flex min-h-12 flex-col items-stretch overflow-hidden rounded-xl border bg-primary/12 shadow-sm shadow-primary/10 transition-colors sm:flex-row ${className}`.trim()}
+      className={`border-primary/60 ring-primary/20 flex min-h-12 flex-col items-stretch overflow-hidden rounded-xl border bg-primary/15 shadow-md shadow-primary/15 ring-1 transition-colors sm:flex-row ${className}`.trim()}
     >
       <div className="flex min-h-12 min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 sm:gap-3 sm:px-3.5">
         {item.thumb_url ? (
@@ -300,6 +301,10 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
   const lastAlignedNowId = useRef<string | null>(null);
   const scrollRafRef = useRef<number | null>(null);
   const lastVisibleNotified = useRef<boolean | null>(null);
+  const prevNowPlayingIdRef = useRef<string | null>(null);
+  const [recentlyPromotedNowId, setRecentlyPromotedNowId] = useState<string | null>(
+    null
+  );
 
   const currentIndex = useMemo(() => {
     if (!nowPlayingId) return -1;
@@ -390,6 +395,22 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
   }, [syncNowPlayingVisibility]);
 
   useEffect(() => {
+    const prev = prevNowPlayingIdRef.current;
+    prevNowPlayingIdRef.current = nowPlayingId;
+    if (!nowPlayingId || !prev || prev === nowPlayingId) return;
+    const rafId = window.requestAnimationFrame(() => {
+      setRecentlyPromotedNowId(nowPlayingId);
+    });
+    const id = window.setTimeout(() => {
+      setRecentlyPromotedNowId((cur) => (cur === nowPlayingId ? null : cur));
+    }, 900);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(id);
+    };
+  }, [nowPlayingId]);
+
+  useEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
 
@@ -467,9 +488,15 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
               currentIndex >= 0 ? (
                 index < currentIndex ? (
                   <span className="text-muted-foreground">Played</span>
+                ) : index === currentIndex + 1 ? (
+                  <span>
+                    <span className="text-primary font-semibold">Up next</span>
+                    <span className="text-muted-foreground"> · queued</span>
+                  </span>
                 ) : index > currentIndex ? (
                   <span>
-                    Up next · #{index - currentIndex}
+                    <span className="text-muted-foreground">Queued</span> · #
+                    {index - currentIndex}
                   </span>
                 ) : null
               ) : (
@@ -483,6 +510,9 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
                   renderAs="li"
                   item={item}
                   playback={playback}
+                  className={
+                    recentlyPromotedNowId === item.id ? "vibin-now-promoted" : ""
+                  }
                 />
               );
             }
@@ -540,6 +570,25 @@ export const QueueList = forwardRef<QueueListHandle, Props>(function QueueList(
           })}
         </ul>
       </div>
+      <style jsx global>{`
+        @keyframes vibin-now-promoted {
+          0% {
+            transform: translateY(6px) scale(0.985);
+            opacity: 0.7;
+          }
+          55% {
+            transform: translateY(0) scale(1.01);
+            opacity: 1;
+          }
+          100% {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+          }
+        }
+        .vibin-now-promoted {
+          animation: vibin-now-promoted 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+      `}</style>
     </div>
   );
 });

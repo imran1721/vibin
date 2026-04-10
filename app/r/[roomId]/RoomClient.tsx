@@ -83,6 +83,21 @@ type PostgresChangePayload<T> = {
   old: Partial<T>;
 };
 
+type RoomReaction = {
+  id: string;
+  emoji: string;
+  leftPct: number;
+};
+
+type ReadyCheckState = {
+  id: string;
+  targetItemId: string;
+  targetTitle: string;
+  requiredCount: number;
+  initiatorId: string;
+  readyUserIds: string[];
+};
+
 function shortTrackTitle(title: string, max = 36): string {
   const t = title.trim();
   return t.length <= max ? t : `${t.slice(0, max)}…`;
@@ -187,7 +202,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [activityToastMessage, setActivityToastMessage] = useState<
     string | null
   >(null);
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<RoomReaction[]>([]);
   const [profileGateDone, setProfileGateDone] = useState(false);
+  const [isCompactMobile, setIsCompactMobile] = useState(false);
+  const [forceResyncToken, setForceResyncToken] = useState(0);
+  const [readyCheck, setReadyCheck] = useState<ReadyCheckState | null>(null);
 
   const queueSectionRef = useRef<HTMLElement | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
@@ -197,6 +217,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
+  const reactionSeqRef = useRef(0);
+  const readyCheckHandledRef = useRef<string | null>(null);
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -225,6 +247,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     guestListOpenRef.current = guestListOpen;
   }, [guestListOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 639px)");
+    const onChange = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsCompactMobile(e.matches);
+    };
+    onChange(mql);
+    const listener = (e: MediaQueryListEvent) => onChange(e);
+    mql.addEventListener("change", listener);
+    return () => mql.removeEventListener("change", listener);
+  }, []);
+
+  useEffect(() => {
+    if (!isCompactMobile) return;
+    setPlaylistSectionOpen(false);
+  }, [isCompactMobile]);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
     setGuestShowSyncedVideo(show);
@@ -278,12 +317,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     setQueue((data ?? []) as QueueItem[]);
   }, [roomId]);
 
-  const loadRoomPresence = useCallback(async () => {
+  const loadRoomPresence = useCallback(async (knownUserId?: string | null) => {
     const supabase = getSupabaseBrowserClient();
-    const {
-      data: { user: presenceUser },
-    } = await supabase.auth.getUser();
-    const myId = presenceUser?.id ?? null;
+    let myId: string | null;
+    if (knownUserId !== undefined) {
+      myId = knownUserId;
+    } else {
+      const {
+        data: { user: presenceUser },
+      } = await supabase.auth.getUser();
+      myId = presenceUser?.id ?? null;
+    }
     const localDisplayName = getQueueAttributionLabel();
 
     const { data, error } = await supabase
@@ -324,6 +368,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     () => setActivityToastMessage(null),
     []
   );
+  const dismissSyncToast = useCallback(() => setSyncToastMessage(null), []);
+
+  const handleAutoResyncNotice = useCallback(() => {
+    setSyncToastMessage("Jumped to stay in sync");
+  }, []);
 
   const notifyRoomActivity = useCallback(async (message: string) => {
     if (!shouldBroadcastActivity()) return;
@@ -340,11 +389,83 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }
   }, []);
 
+  const getParticipantId = useCallback(() => {
+    const uid = currentUserIdRef.current ?? sessionUserId;
+    if (uid) return uid;
+    if (typeof window === "undefined") return "local-anon";
+    try {
+      const key = "vibin_ready_check_local_id";
+      const existing = window.sessionStorage.getItem(key);
+      if (existing) return existing;
+      const created = `anon-${Math.random().toString(36).slice(2, 10)}`;
+      window.sessionStorage.setItem(key, created);
+      return created;
+    } catch {
+      return "local-anon";
+    }
+  }, [sessionUserId]);
+
+  const broadcastReadyCheckEvent = useCallback(
+    async (event: string, payload: Record<string, unknown>) => {
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      try {
+        await ch.send({
+          type: "broadcast",
+          event,
+          payload,
+        });
+      } catch (e) {
+        console.error(`supabase broadcast ${event}:`, e);
+      }
+    },
+    []
+  );
+
+  const spawnReaction = useCallback((emoji: string) => {
+    const id = `${Date.now()}-${reactionSeqRef.current++}`;
+    const leftPct = 14 + Math.random() * 72;
+    setReactions((prev) => [...prev, { id, emoji, leftPct }]);
+    window.setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 2100);
+  }, []);
+
+  const sendReaction = useCallback(async (emoji: string) => {
+    spawnReaction(emoji);
+    const ch = roomChannelRef.current;
+    if (!ch) return;
+    try {
+      await ch.send({
+        type: "broadcast",
+        event: "room_reaction",
+        payload: { emoji, senderUserId: currentUserIdRef.current },
+      });
+    } catch (e) {
+      console.error("supabase broadcast room_reaction:", e);
+    }
+  }, [spawnReaction]);
+
   useLayoutEffect(() => {
     if (ready && hasCompletedDisplayProfile()) {
       setProfileGateDone(true);
     }
   }, [ready]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prevTitle = document.title;
+    const nextTitle =
+      reactions.length > 0
+        ? `${reactions[0]?.emoji ?? "😂"} ${reactions.length} reaction${reactions.length === 1 ? "" : "s"}`
+        : playbackPaused
+          ? "⏸️ Paused"
+          : "▶️ Playing";
+    document.title = nextTitle;
+    return () => {
+      document.title = prevTitle;
+    };
+  }, [playbackPaused, reactions]);
 
   const refreshPlaybackState = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -372,20 +493,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }
   }, [roomId]);
 
-  const checkHostRole = useCallback(async () => {
-    const supabase = getSupabaseBrowserClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return false;
-    const { data } = await supabase
-      .from("room_members")
-      .select("role")
-      .eq("room_id", roomId)
-      .eq("user_id", user.id)
-      .maybeSingle();
-    return data?.role === "host";
-  }, [roomId]);
+  const forceRoomResync = useCallback(async () => {
+    await Promise.all([loadQueue(), refreshPlaybackState()]);
+    setForceResyncToken((n) => n + 1);
+  }, [loadQueue, refreshPlaybackState]);
 
   useEffect(() => {
     const joinKey = `${roomId}|${hostToken ?? ""}`;
@@ -498,9 +609,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       setStoredPartyRoomId(roomId);
       if (hostToken) setStoredHostRoom(roomId, hostToken);
 
-      const host = await checkHostRole();
-      if (!cancelled) setIsHost(host);
-
       const {
         data: { user: joinedUser },
       } = await supabase.auth.getUser();
@@ -508,9 +616,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       currentUserIdRef.current = uid;
       if (!cancelled) setSessionUserId(uid);
 
-      await loadQueue();
-      await refreshPlaybackState();
-      await loadRoomPresence();
+      const hostRolePromise =
+        uid != null
+          ? supabase
+              .from("room_members")
+              .select("role")
+              .eq("room_id", roomId)
+              .eq("user_id", uid)
+              .maybeSingle()
+              .then(({ data, error }) => {
+                if (error) console.error(error);
+                return data?.role === "host";
+              })
+          : Promise.resolve(false);
 
       channel = supabase
         .channel(`room:${roomId}`)
@@ -552,6 +670,78 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               return;
             }
             setActivityToastMessage(p.text);
+          }
+        )
+        .on("broadcast", { event: "room_reaction" }, (payload: unknown) => {
+          const p = (payload as { payload?: unknown } | null | undefined)
+            ?.payload as { emoji?: unknown; senderUserId?: unknown } | undefined;
+          if (typeof p?.emoji !== "string" || p.emoji.length === 0) return;
+          if (
+            typeof p.senderUserId === "string" &&
+            p.senderUserId.length > 0 &&
+            p.senderUserId === currentUserIdRef.current
+          ) {
+            return;
+          }
+          spawnReaction(p.emoji);
+        })
+        .on(
+          "broadcast",
+          { event: "room_ready_check_start" },
+          (payload: unknown) => {
+            const p = (payload as { payload?: unknown } | null | undefined)
+              ?.payload as Partial<ReadyCheckState> | undefined;
+            if (
+              !p ||
+              typeof p.id !== "string" ||
+              typeof p.targetItemId !== "string" ||
+              typeof p.targetTitle !== "string" ||
+              typeof p.requiredCount !== "number" ||
+              typeof p.initiatorId !== "string"
+            ) {
+              return;
+            }
+            setReadyCheck({
+              id: p.id,
+              targetItemId: p.targetItemId,
+              targetTitle: p.targetTitle,
+              requiredCount: Math.max(1, Math.floor(p.requiredCount)),
+              initiatorId: p.initiatorId,
+              readyUserIds: Array.isArray(p.readyUserIds)
+                ? p.readyUserIds.filter((v): v is string => typeof v === "string")
+                : [],
+            });
+            readyCheckHandledRef.current = null;
+          }
+        )
+        .on(
+          "broadcast",
+          { event: "room_ready_check_ready" },
+          (payload: unknown) => {
+            const p = (payload as { payload?: unknown } | null | undefined)
+              ?.payload as { checkId?: unknown; userId?: unknown } | undefined;
+            if (
+              typeof p?.checkId !== "string" ||
+              typeof p?.userId !== "string"
+            ) {
+              return;
+            }
+            const readyUserId = p.userId;
+            setReadyCheck((cur) => {
+              if (!cur || cur.id !== p.checkId) return cur;
+              if (cur.readyUserIds.includes(readyUserId)) return cur;
+              return { ...cur, readyUserIds: [...cur.readyUserIds, readyUserId] };
+            });
+          }
+        )
+        .on(
+          "broadcast",
+          { event: "room_ready_check_done" },
+          (payload: unknown) => {
+            const p = (payload as { payload?: unknown } | null | undefined)
+              ?.payload as { checkId?: unknown } | undefined;
+            if (typeof p?.checkId !== "string") return;
+            setReadyCheck((cur) => (cur?.id === p.checkId ? null : cur));
           }
         )
         .on(
@@ -610,10 +800,21 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         .subscribe((status) => {
           if (!cancelled && status === "SUBSCRIBED") {
             roomChannelRef.current = channel;
+            void forceRoomResync();
           }
         });
 
-      if (!cancelled) setReady(true);
+      const [, , isHostResult] = await Promise.all([
+        loadQueue(),
+        refreshPlaybackState(),
+        hostRolePromise,
+      ]);
+      if (!cancelled) setIsHost(!!isHostResult);
+
+      if (!cancelled) {
+        void loadRoomPresence(uid);
+        setReady(true);
+      }
     })();
 
     return () => {
@@ -632,9 +833,28 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     hostToken,
     loadQueue,
     loadRoomPresence,
-    checkHostRole,
     refreshPlaybackState,
+    spawnReaction,
+    forceRoomResync,
   ]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void forceRoomResync();
+      }
+    };
+    const onOnline = () => {
+      void forceRoomResync();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [ready, forceRoomResync]);
 
   /** Push display name to `room_members` right after the name gate (don’t wait for heartbeat). */
   useEffect(() => {
@@ -780,27 +1000,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         const label = getQueueAttributionLabel();
         if (label) {
           void notifyRoomActivity(`${label} went to the previous track`);
-        }
-      }
-      await refreshPlaybackState();
-    } finally {
-      setControlsBusy(false);
-    }
-  }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
-
-  const goNext = useCallback(async () => {
-    setControlsBusy(true);
-    try {
-      const supabase = getSupabaseBrowserClient();
-      const { error } = await supabase.rpc("advance_queue", {
-        p_room_id: roomId,
-        p_host_token: hostTokenForRpc,
-      });
-      if (error) console.error(error);
-      else {
-        const label = getQueueAttributionLabel();
-        if (label) {
-          void notifyRoomActivity(`${label} skipped to the next track`);
         }
       }
       await refreshPlaybackState();
@@ -999,39 +1198,133 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const handlePlayQueueItem = useCallback(
     async (itemId: string) => {
-      if (itemId === nowPlayingId) return;
+      if (itemId === nowPlayingId || queueJumpBusy) return;
       const target = queue.find((q) => q.id === itemId);
+      if (!target) return;
+      const participantId = getParticipantId();
+      const checkId = `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const nextReady: ReadyCheckState = {
+        id: checkId,
+        targetItemId: target.id,
+        targetTitle: target.title,
+        requiredCount: Math.max(1, guestCount + 1),
+        initiatorId: participantId,
+        readyUserIds: [participantId],
+      };
+      readyCheckHandledRef.current = null;
+      setReadyCheck(nextReady);
+      await broadcastReadyCheckEvent("room_ready_check_start", nextReady);
+    },
+    [
+      nowPlayingId,
+      queueJumpBusy,
+      queue,
+      getParticipantId,
+      guestCount,
+      broadcastReadyCheckEvent,
+    ]
+  );
+
+  const goNext = useCallback(async () => {
+    if (queueJumpBusy) return;
+    const nextItem = queue[currentQueueIndex + 1];
+    if (!nextItem) return;
+    const participantId = getParticipantId();
+    const checkId = `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const nextReady: ReadyCheckState = {
+      id: checkId,
+      targetItemId: nextItem.id,
+      targetTitle: nextItem.title,
+      requiredCount: Math.max(1, guestCount + 1),
+      initiatorId: participantId,
+      readyUserIds: [participantId],
+    };
+    readyCheckHandledRef.current = null;
+    setReadyCheck(nextReady);
+    await broadcastReadyCheckEvent("room_ready_check_start", nextReady);
+  }, [
+    queueJumpBusy,
+    queue,
+    currentQueueIndex,
+    getParticipantId,
+    guestCount,
+    broadcastReadyCheckEvent,
+  ]);
+
+  const tapReadyCheck = useCallback(async () => {
+    const current = readyCheck;
+    if (!current) return;
+    const participantId = getParticipantId();
+    if (current.readyUserIds.includes(participantId)) return;
+    const next = {
+      ...current,
+      readyUserIds: [...current.readyUserIds, participantId],
+    };
+    setReadyCheck(next);
+    await broadcastReadyCheckEvent("room_ready_check_ready", {
+      checkId: current.id,
+      userId: participantId,
+    });
+  }, [readyCheck, getParticipantId, broadcastReadyCheckEvent]);
+
+  const cancelReadyCheck = useCallback(async () => {
+    if (!readyCheck) return;
+    const checkId = readyCheck.id;
+    setReadyCheck(null);
+    readyCheckHandledRef.current = checkId;
+    await broadcastReadyCheckEvent("room_ready_check_done", { checkId });
+  }, [readyCheck, broadcastReadyCheckEvent]);
+
+  useEffect(() => {
+    if (!readyCheck) return;
+    const myId = getParticipantId();
+    if (readyCheck.initiatorId !== myId) return;
+    if (readyCheck.readyUserIds.length < readyCheck.requiredCount) return;
+    if (readyCheckHandledRef.current === readyCheck.id) return;
+    readyCheckHandledRef.current = readyCheck.id;
+
+    void (async () => {
       setQueueJumpBusy(true);
       try {
         const supabase = getSupabaseBrowserClient();
         const { error } = await supabase.rpc("jump_to_queue_item", {
-          p_item_id: itemId,
+          p_item_id: readyCheck.targetItemId,
           p_host_token: hostTokenForRpc,
         });
-        if (error) console.error(error);
-        else {
-          const label = getQueueAttributionLabel();
-          if (label) {
-            void notifyRoomActivity(
-              target
-                ? `${label} jumped to “${shortTrackTitle(target.title)}”`
-                : `${label} changed the track`
-            );
-          }
+        if (error) {
+          console.error(error);
+          return;
         }
-        void refreshPlaybackState();
+        const { error: playError } = await supabase.rpc("playback_set_paused", {
+          p_room_id: roomId,
+          p_paused: false,
+          p_anchor_sec: 0,
+        });
+        if (playError) console.error(playError);
+        const label = getQueueAttributionLabel();
+        if (label) {
+          void notifyRoomActivity(
+            `${label} started “${shortTrackTitle(readyCheck.targetTitle)}” after ready check`
+          );
+        }
+        await refreshPlaybackState();
       } finally {
         setQueueJumpBusy(false);
+        setReadyCheck(null);
+        await broadcastReadyCheckEvent("room_ready_check_done", {
+          checkId: readyCheck.id,
+        });
       }
-    },
-    [
-      hostTokenForRpc,
-      notifyRoomActivity,
-      nowPlayingId,
-      queue,
-      refreshPlaybackState,
-    ]
-  );
+    })();
+  }, [
+    readyCheck,
+    getParticipantId,
+    hostTokenForRpc,
+    roomId,
+    notifyRoomActivity,
+    refreshPlaybackState,
+    broadcastReadyCheckEvent,
+  ]);
 
   const runClearQueue = useCallback(async () => {
     setClearQueueBusy(true);
@@ -1144,6 +1437,22 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     onNext: () => void goNext(),
     onSeekDelta: (d: number) => void seekBy(d),
   };
+  const peopleWatchingCount = Math.max(1, guestCount + 1);
+  const visiblePresenceDots = Math.min(peopleWatchingCount, 6);
+  const playbackControlLabel = "Everyone can control playback";
+  const localParticipantId = getParticipantId();
+  const readyCount = readyCheck?.readyUserIds.length ?? 0;
+  const readyTotal = readyCheck?.requiredCount ?? 0;
+  const isReadyCheckInitiator =
+    readyCheck != null && readyCheck.initiatorId === localParticipantId;
+  const hasTappedReady =
+    readyCheck != null && readyCheck.readyUserIds.includes(localParticipantId);
+  const showMobileStickyControls = isCompactMobile && hasNowPlaying;
+  const queuePlaybackForList =
+    showMobileStickyControls ? undefined : hasNowPlaying ? queuePlayback : undefined;
+  const reactionsDockClass = showMobileStickyControls
+    ? "border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 fixed bottom-[max(11.6rem,calc(env(safe-area-inset-bottom)+10.3rem))] left-1/2 z-[59] inline-flex -translate-x-1/2 items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/15 backdrop-blur sm:bottom-4 sm:right-3 sm:left-auto sm:translate-x-0"
+    : "border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 fixed bottom-[max(6.25rem,calc(env(safe-area-inset-bottom)+5.1rem))] right-3 z-[59] inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/15 backdrop-blur sm:bottom-4";
 
   const showGoToNowPlayingFab =
     hasNowPlaying &&
@@ -1230,9 +1539,66 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         onDismiss={dismissActivityToast}
         variant="stacked"
       />
+      <RoomGuestJoinToast
+        message={syncToastMessage}
+        onDismiss={dismissSyncToast}
+        variant="stacked2"
+      />
+      {reactions.length > 0 ? (
+        <div className="pointer-events-none fixed inset-0 z-[58] overflow-hidden" aria-hidden>
+          {reactions.map((reaction) => (
+            <span
+              key={reaction.id}
+              className="vibin-reaction-float absolute bottom-[max(7rem,calc(env(safe-area-inset-bottom)+5.75rem))] text-3xl drop-shadow-[0_6px_10px_rgba(0,0,0,0.28)] sm:bottom-[5.75rem]"
+              style={{ left: `${reaction.leftPct}%` }}
+            >
+              {reaction.emoji}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div className={reactionsDockClass}>
+        {["🔥", "👏", "😂", "❤️"].map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            onClick={() => void sendReaction(emoji)}
+            className="hover:bg-muted focus-visible:ring-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label={`Send ${emoji} reaction`}
+            title={`Send ${emoji}`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
 
-      <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] lg:max-w-5xl">
+      <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] pb-[max(5.4rem,calc(env(safe-area-inset-bottom)+4.9rem))] sm:pb-0 lg:max-w-5xl">
         <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
+          <section
+            className="border-border/70 bg-card/60 inline-flex w-fit max-w-full items-center gap-2 self-start rounded-full border px-3 py-1.5"
+            aria-label={`${peopleWatchingCount} people watching`}
+          >
+            <div className="flex items-center">
+              {Array.from({ length: visiblePresenceDots }, (_, idx) => (
+                <span
+                  key={idx}
+                  className={`ring-background inline-block size-2.5 rounded-full ring-2 ${idx % 3 === 0 ? "bg-emerald-400" : idx % 3 === 1 ? "bg-sky-400" : "bg-violet-400"} ${idx > 0 ? "-ml-1.5" : ""}`}
+                  aria-hidden
+                />
+              ))}
+            </div>
+            <p className="text-foreground text-xs font-semibold sm:text-sm">
+              {peopleWatchingCount} {peopleWatchingCount === 1 ? "person" : "people"} watching
+            </p>
+          </section>
+          <section
+            className="border-primary/30 bg-primary/10 text-primary inline-flex w-fit max-w-full items-center gap-2 self-start rounded-full border px-3 py-1.5"
+            aria-label={playbackControlLabel}
+          >
+            <span aria-hidden className="inline-block size-2 rounded-full bg-primary" />
+            <p className="text-xs font-semibold sm:text-sm">{playbackControlLabel}</p>
+          </section>
+
           <section aria-labelledby="search-heading" className="flex flex-col gap-1">
             <h2 id="search-heading" className="sr-only">
               Search YouTube
@@ -1255,6 +1621,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 onHostVideoEnded={advanceToNextTrack}
                 onPlaybackScrub={reportIframeSeek}
                 onIframePausePlay={reportIframePausePlay}
+                onAutoResync={handleAutoResyncNotice}
+                forceResyncToken={forceResyncToken}
               />
               <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
                 Playback runs on this device. Everyone sees the same video in sync;
@@ -1282,6 +1650,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                     onHostVideoEnded={() => { }}
                     onPlaybackScrub={reportIframeSeek}
                     onIframePausePlay={reportIframePausePlay}
+                    onAutoResync={handleAutoResyncNotice}
+                    forceResyncToken={forceResyncToken}
                   />
                   <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
                     Same video as the host, kept in sync. Prefer the host’s
@@ -1363,7 +1733,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               >
                 <NowPlayingQueueRow
                   item={nowPlaying}
-                  playback={hasNowPlaying ? queuePlayback : undefined}
+                  playback={queuePlaybackForList}
                 />
               </div>
             ) : null}
@@ -1382,7 +1752,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 nowPlayingId={nowPlayingId}
                 onPlayItem={(id) => void handlePlayQueueItem(id)}
                 playBusy={queueJumpBusy}
-                playback={hasNowPlaying ? queuePlayback : undefined}
+                playback={queuePlaybackForList}
                 onNowPlayingVisibleInQueueChange={
                   onNowPlayingVisibleInQueueChange
                 }
@@ -1467,7 +1837,67 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         </div>
       </div>
 
-      {showGoToNowPlayingFab ? (
+      {showMobileStickyControls ? (
+        <div className="border-border/80 bg-background/95 supports-[backdrop-filter]:bg-background/90 fixed inset-x-0 bottom-0 z-50 border-t px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_26px_rgba(0,0,0,0.12)] backdrop-blur-md sm:hidden">
+          <div className="mx-auto grid w-full max-w-lg grid-cols-5 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void goPrevious()}
+              disabled={!canPrev || playbackBusy}
+              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+              aria-label="Previous track"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              onClick={() => void seekBy(-10)}
+              disabled={playbackBusy || !hasNowPlaying}
+              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+              aria-label="Back 10 seconds"
+            >
+              -10s
+            </button>
+            <button
+              type="button"
+              onClick={() => void setPaused(!playbackPaused)}
+              disabled={playbackBusy || !hasNowPlaying}
+              className="bg-primary text-primary-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+              aria-label={playbackPaused ? "Play" : "Pause"}
+            >
+              {playbackPaused ? "Play" : "Pause"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void seekBy(10)}
+              disabled={playbackBusy || !hasNowPlaying}
+              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+              aria-label="Forward 10 seconds"
+            >
+              +10s
+            </button>
+            <button
+              type="button"
+              onClick={() => void goNext()}
+              disabled={playbackBusy || !hasNowPlaying}
+              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+              aria-label="Next track"
+            >
+              Next
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handleGoToNowPlaying}
+            disabled={queueJumpBusy}
+            className="text-muted-foreground focus-visible:ring-ring mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg text-xs font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
+          >
+            {shortTrackTitle(nowPlaying?.title ?? "Now playing", 34)}
+          </button>
+        </div>
+      ) : null}
+
+      {showGoToNowPlayingFab && !showMobileStickyControls ? (
         <button
           type="button"
           onClick={handleGoToNowPlaying}
@@ -1477,6 +1907,54 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           Go to now playing
         </button>
       ) : null}
+      {readyCheck ? (
+        <div className="border-primary/35 bg-card/95 fixed bottom-[max(0.85rem,calc(env(safe-area-inset-bottom)+0.5rem))] left-1/2 z-[65] w-[min(100vw-1rem,28rem)] -translate-x-1/2 rounded-2xl border px-3 py-3 shadow-xl shadow-black/20 backdrop-blur-md sm:bottom-4 sm:px-4">
+          <p className="text-foreground text-sm font-semibold">
+            Ready check: {shortTrackTitle(readyCheck.targetTitle, 34)}
+          </p>
+          <p className="text-muted-foreground mt-1 text-xs">
+            {readyCount}/{readyTotal} ready
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void tapReadyCheck()}
+              disabled={hasTappedReady}
+              className="bg-primary text-primary-foreground focus-visible:ring-ring inline-flex min-h-10 flex-1 items-center justify-center rounded-xl px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
+            >
+              {hasTappedReady ? "Ready ✓" : "Tap when ready"}
+            </button>
+            {isReadyCheckInitiator ? (
+              <button
+                type="button"
+                onClick={() => void cancelReadyCheck()}
+                className="border-border text-foreground focus-visible:ring-ring inline-flex min-h-10 items-center justify-center rounded-xl border px-3 text-xs font-semibold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              >
+                Cancel
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      <style jsx global>{`
+        @keyframes vibin-reaction-float {
+          0% {
+            transform: translate3d(0, 0, 0) scale(0.82);
+            opacity: 0;
+          }
+          12% {
+            opacity: 1;
+          }
+          100% {
+            transform: translate3d(0, -36vh, 0) scale(1.15) rotate(-5deg);
+            opacity: 0;
+          }
+        }
+        .vibin-reaction-float {
+          animation: vibin-reaction-float 2.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+          will-change: transform, opacity;
+        }
+      `}</style>
     </main>
   );
 }

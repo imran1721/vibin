@@ -31,6 +31,10 @@ type Props = {
    * Host or guest used the iframe play/pause control; sync room state + anchor time.
    */
   onIframePausePlay?: (paused: boolean, anchorSeconds: number) => void;
+  /** Called when the client auto-seeks to realign with room playback. */
+  onAutoResync?: () => void;
+  /** Increment to force a hard seek to current room timeline. */
+  forceResyncToken?: number;
 };
 
 let iframeApiPromise: Promise<void> | null = null;
@@ -81,6 +85,8 @@ export const YouTubeSyncPlayer = forwardRef<
     onHostVideoEnded,
     onPlaybackScrub,
     onIframePausePlay,
+    onAutoResync,
+    forceResyncToken = 0,
   },
   ref
 ) {
@@ -89,6 +95,7 @@ export const YouTubeSyncPlayer = forwardRef<
   const onEndedRef = useRef(onHostVideoEnded);
   const onPlaybackScrubRef = useRef(onPlaybackScrub);
   const onIframePausePlayRef = useRef(onIframePausePlay);
+  const onAutoResyncRef = useRef(onAutoResync);
   const suppressProgrammaticPausePlayRef = useRef(false);
   const iframeIgnoreUntilRef = useRef(0);
   const remotePausedRef = useRef(remotePaused);
@@ -99,6 +106,9 @@ export const YouTubeSyncPlayer = forwardRef<
   const pausedRef = useRef(remotePaused);
   const [playerReady, setPlayerReady] = useState(false);
   const [guestUnmuted, setGuestUnmuted] = useState(false);
+  const [syncState, setSyncState] = useState<"synced" | "resyncing">("synced");
+  const resyncToastCooldownUntilRef = useRef(0);
+  const resyncIndicatorTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     onEndedRef.current = onHostVideoEnded;
@@ -111,6 +121,10 @@ export const YouTubeSyncPlayer = forwardRef<
   useEffect(() => {
     onIframePausePlayRef.current = onIframePausePlay;
   }, [onIframePausePlay]);
+
+  useEffect(() => {
+    onAutoResyncRef.current = onAutoResync;
+  }, [onAutoResync]);
 
   useEffect(() => {
     remotePausedRef.current = remotePaused;
@@ -132,9 +146,34 @@ export const YouTubeSyncPlayer = forwardRef<
     getCurrentTime: () => playerRef.current?.getCurrentTime?.() ?? null,
   }));
 
+  const triggerResyncUi = () => {
+    setSyncState("resyncing");
+    if (resyncIndicatorTimerRef.current != null) {
+      window.clearTimeout(resyncIndicatorTimerRef.current);
+    }
+    resyncIndicatorTimerRef.current = window.setTimeout(() => {
+      setSyncState("synced");
+      resyncIndicatorTimerRef.current = null;
+    }, 1500);
+
+    const now = Date.now();
+    if (now >= resyncToastCooldownUntilRef.current) {
+      resyncToastCooldownUntilRef.current = now + 4200;
+      onAutoResyncRef.current?.();
+    }
+  };
+
   useEffect(() => {
     prevYtStateRef.current = window.YT?.PlayerState?.UNSTARTED ?? -1;
   }, [videoId]);
+
+  useEffect(() => {
+    return () => {
+      if (resyncIndicatorTimerRef.current != null) {
+        window.clearTimeout(resyncIndicatorTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +300,7 @@ export const YouTubeSyncPlayer = forwardRef<
         p.seekTo(target, true);
         if (pausedRef.current) p.pauseVideo();
         else p.playVideo();
+        triggerResyncUi();
       } finally {
         window.setTimeout(() => {
           suppressProgrammaticPausePlayRef.current = false;
@@ -284,6 +324,7 @@ export const YouTubeSyncPlayer = forwardRef<
         suppressProgrammaticPausePlayRef.current = true;
         p.seekTo(target, true);
         p.pauseVideo();
+        triggerResyncUi();
         window.setTimeout(() => {
           suppressProgrammaticPausePlayRef.current = false;
         }, SUPPRESS_IFRAME_PAUSE_MS);
@@ -329,12 +370,34 @@ export const YouTubeSyncPlayer = forwardRef<
     try {
       playerRef.current.seekTo(target, true);
       if (remotePaused) playerRef.current.pauseVideo();
+      triggerResyncUi();
     } finally {
       window.setTimeout(() => {
         suppressProgrammaticPausePlayRef.current = false;
       }, SUPPRESS_IFRAME_PAUSE_MS);
     }
   }, [playerReady, videoId, anchorSec, anchorAtIso, remotePaused]);
+
+  /** Hard resync hook for reconnect/foreground/boot edge cases. */
+  useEffect(() => {
+    if (!playerReady || !playerRef.current || !videoId) return;
+    const target = effectivePlaybackSec(
+      anchorSecRef.current,
+      anchorAtRef.current,
+      pausedRef.current
+    );
+    suppressProgrammaticPausePlayRef.current = true;
+    try {
+      playerRef.current.seekTo(target, true);
+      if (pausedRef.current) playerRef.current.pauseVideo();
+      else playerRef.current.playVideo();
+      triggerResyncUi();
+    } finally {
+      window.setTimeout(() => {
+        suppressProgrammaticPausePlayRef.current = false;
+      }, SUPPRESS_IFRAME_PAUSE_MS);
+    }
+  }, [forceResyncToken, playerReady, videoId]);
 
   /** Detect seeks via the embedded YouTube progress bar (not exposed as events). */
   useEffect(() => {
@@ -392,6 +455,7 @@ export const YouTubeSyncPlayer = forwardRef<
       if (d >= IFRAME_SCRUB_PLAYING) return;
       if (d > GUEST_DRIFT_THRESHOLD) {
         playerRef.current?.seekTo(target, true);
+        triggerResyncUi();
       }
     }, GUEST_DRIFT_INTERVAL_MS);
     return () => window.clearInterval(id);
@@ -416,6 +480,13 @@ export const YouTubeSyncPlayer = forwardRef<
       }}
     >
       <div className="h-full w-full" ref={containerRef} />
+      <div className="border-border/70 bg-background/80 text-foreground absolute left-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold shadow-sm backdrop-blur-sm sm:text-xs">
+        <span
+          aria-hidden
+          className={`inline-block size-2 rounded-full ${syncState === "resyncing" ? "bg-amber-400" : "bg-emerald-400"}`}
+        />
+        {syncState === "resyncing" ? "Resyncing..." : "Synced"}
+      </div>
       {!isHost && videoId ? (
         <button
           type="button"

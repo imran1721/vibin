@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  fetchWithYouTubeApiKeyRotation,
+  getYouTubeApiKeys,
+} from "@/lib/youtube/api-key-rotation";
 
 const YT_SEARCH = "https://www.googleapis.com/youtube/v3/search";
 
 export async function GET(req: NextRequest) {
-  const key = process.env.YOUTUBE_API_KEY;
-  if (!key) {
+  const keys = getYouTubeApiKeys();
+  if (keys.length === 0) {
     return NextResponse.json(
-      { error: "YOUTUBE_API_KEY is not configured" },
+      { error: "YOUTUBE_API_KEYS is not configured" },
       { status: 500 }
     );
   }
@@ -16,14 +20,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ items: [] });
   }
 
-  const url = new URL(YT_SEARCH);
-  url.searchParams.set("part", "snippet");
-  url.searchParams.set("type", "video");
-  url.searchParams.set("maxResults", "12");
-  url.searchParams.set("q", q);
-  url.searchParams.set("key", key);
-
-  const res = await fetch(url.toString(), { next: { revalidate: 60 } });
+  const { response: res } = await fetchWithYouTubeApiKeyRotation(
+    (apiKey) => {
+      const url = new URL(YT_SEARCH);
+      url.searchParams.set("part", "snippet");
+      url.searchParams.set("type", "video");
+      url.searchParams.set("maxResults", "12");
+      url.searchParams.set("q", q);
+      url.searchParams.set("key", apiKey);
+      return url.toString();
+    },
+    { next: { revalidate: 60 } }
+  );
   if (!res.ok) {
     const text = await res.text();
     return NextResponse.json(

@@ -33,6 +33,8 @@ const btnClass =
 
 export function PwaInstallOption() {
   const [standalone, setStandalone] = useState(false);
+  const [ios, setIos] = useState(false);
+  const [chromium, setChromium] = useState(false);
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(
     null
   );
@@ -41,6 +43,8 @@ export function PwaInstallOption() {
 
   useEffect(() => {
     setStandalone(isStandaloneDisplay());
+    setIos(isIosDevice());
+    setChromium(isLikelyChromium());
   }, []);
 
   useEffect(() => {
@@ -83,9 +87,6 @@ export function PwaInstallOption() {
       </div>
     );
   }
-
-  const ios = isIosDevice();
-  const chromium = isLikelyChromium();
 
   return (
     <div className={cardClass}>
