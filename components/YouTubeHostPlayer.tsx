@@ -23,8 +23,8 @@ type Props = {
   isHost: boolean;
   onHostVideoEnded: () => void;
   /**
-   * When someone uses the YouTube iframe timeline and drifts from the shared
-   * clock, publish the new time (debounced). Same callback for host and guests.
+   * Host only: when the YouTube iframe timeline is used, publish the new time
+   * (debounced). Guests must not write seek — they follow `playback_host_beat`.
    */
   onPlaybackScrub?: (seconds: number) => void;
   /**
@@ -452,7 +452,8 @@ export const YouTubeSyncPlayer = forwardRef<
       );
       const cur = playerRef.current?.getCurrentTime?.() ?? 0;
       const d = Math.abs(cur - target);
-      if (d >= IFRAME_SCRUB_PLAYING) return;
+      // Host is source of truth in DB; guests never publish seeks — snap local
+      // player to shared timeline for any meaningful drift (small or large).
       if (d > GUEST_DRIFT_THRESHOLD) {
         playerRef.current?.seekTo(target, true);
         triggerResyncUi();
