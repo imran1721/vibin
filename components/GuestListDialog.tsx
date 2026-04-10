@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const iconBtn =
-  "text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "text-muted-foreground hover:text-foreground hover:bg-muted/60 focus-visible:ring-ring absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
-const btnGhost =
-  "text-accent hover:brightness-110 focus-visible:ring-ring inline-flex min-h-10 items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold underline underline-offset-4 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+const refreshBtn =
+  "text-muted-foreground hover:text-foreground hover:bg-muted/50 focus-visible:ring-ring inline-flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+const removeLink =
+  "text-muted-foreground hover:text-destructive focus-visible:ring-ring shrink-0 text-xs font-medium transition-colors focus-visible:rounded focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40";
 
 export type GuestListEntry = {
   userId: string;
@@ -39,9 +42,6 @@ type Props = {
   kickBusyUserId?: string | null;
 };
 
-const btnKick =
-  "text-destructive hover:bg-destructive/10 focus-visible:ring-destructive/40 inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45";
-
 export function GuestListDialog({
   open,
   onOpenChange,
@@ -55,6 +55,11 @@ export function GuestListDialog({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [kickConfirmUserId, setKickConfirmUserId] = useState<string | null>(
     null
+  );
+
+  const confirmGuest = useMemo(
+    () => guests.find((g) => g.userId === kickConfirmUserId) ?? null,
+    [guests, kickConfirmUserId]
   );
 
   useEffect(() => {
@@ -91,13 +96,13 @@ export function GuestListDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="border-border bg-background text-foreground fixed left-1/2 top-1/2 z-[115] max-h-[min(88dvh,32rem)] w-[min(100vw-1.5rem,22rem)] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border p-0 shadow-2xl sm:w-96 [&::backdrop]:bg-black/50 [&::backdrop]:backdrop-blur-[2px]"
+      className="border-border bg-background text-foreground fixed left-1/2 top-1/2 z-[115] max-h-[min(88dvh,34rem)] w-[min(100vw-1.5rem,22rem)] max-w-[calc(100vw-1.5rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border p-0 shadow-2xl sm:w-96 [&::backdrop]:bg-black/50 [&::backdrop]:backdrop-blur-[2px]"
       aria-labelledby="guest-list-title"
       onClick={(e) => {
         if (e.target === dialogRef.current) onOpenChange(false);
       }}
     >
-      <div className="relative flex max-h-[min(88dvh,32rem)] flex-col">
+      <div className="flex max-h-[min(88dvh,34rem)] flex-col">
         <button
           type="button"
           className={iconBtn}
@@ -120,54 +125,87 @@ export function GuestListDialog({
         </button>
 
         <div
-          className="flex min-h-0 flex-1 flex-col gap-3 px-5 pb-4 pt-[max(3rem,env(safe-area-inset-top))]"
+          className="flex min-h-0 flex-1 flex-col"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex shrink-0 items-start justify-between gap-2 pr-8">
-            <h2
-              id="guest-list-title"
-              className="font-display text-foreground text-lg font-bold leading-tight"
-            >
-              Guests
-            </h2>
-            <button type="button" className={btnGhost} onClick={() => onRefresh()}>
-              Refresh
-            </button>
+          <div className="border-border/80 shrink-0 border-b px-5 pb-3 pt-[max(3rem,env(safe-area-inset-top))] pr-14">
+            <div className="flex items-center justify-between gap-3">
+              <h2
+                id="guest-list-title"
+                className="font-display text-foreground text-lg font-bold leading-tight tracking-tight"
+              >
+                Guests
+              </h2>
+              <button
+                type="button"
+                className={refreshBtn}
+                onClick={() => onRefresh()}
+                title="Refresh list"
+                aria-label="Refresh guest list"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  className="size-4"
+                  aria-hidden
+                >
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                  <path d="M3 3v5h5" />
+                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+                  <path d="M16 16h5v5" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-muted-foreground mt-1 text-[0.7rem] leading-snug sm:text-xs">
+              {isHost
+                ? "People connected as guests. You can remove someone if needed."
+                : "Everyone here is listening with you."}
+            </p>
           </div>
 
-          <div className="border-border min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
             {guests.length === 0 ? (
-              <p className="text-muted-foreground p-4 text-sm leading-relaxed">
+              <p className="text-muted-foreground px-5 py-6 text-sm leading-relaxed">
                 No guests in the room yet. Share the invite link so people can
                 join.
               </p>
             ) : (
-              <ul className="divide-border divide-y" role="list">
+              <ul className="divide-border/80 divide-y" role="list">
                 {guests.map((g) => {
                   const isYou = g.userId === currentUserId;
-                  const showKick =
-                    isHost && onKickGuest && !isYou && kickConfirmUserId !== g.userId;
-                  const confirmingKick = kickConfirmUserId === g.userId;
+                  const canShowRemove =
+                    isHost && onKickGuest && !isYou && kickConfirmUserId == null;
+                  const rowMuted =
+                    kickConfirmUserId != null &&
+                    kickConfirmUserId !== g.userId;
+
                   return (
                     <li
                       key={g.userId}
-                      className="flex flex-col gap-0.5 px-3.5 py-3 sm:px-4"
+                      className={`px-5 py-3.5 transition-opacity ${rowMuted ? "opacity-45" : ""}`}
                     >
-                      <div className="flex min-w-0 items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="text-foreground truncate font-semibold">
-                            {g.label}
-                          </span>
-                          {isYou ? (
-                            <span className="bg-accent/15 text-accent border-accent/25 shrink-0 rounded-full border px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide">
-                              You
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                            <span className="text-foreground truncate font-semibold leading-tight">
+                              {g.label}
                             </span>
-                          ) : null}
+                            {isYou ? (
+                              <span className="bg-primary/12 text-primary border-primary/20 shrink-0 rounded-md border px-1.5 py-px text-[0.65rem] font-bold uppercase tracking-wide">
+                                You
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="text-muted-foreground mt-1 text-[0.7rem] leading-none sm:text-xs">
+                            {formatActivity(g.lastSeenAt)}
+                          </p>
                         </div>
-                        {showKick ? (
+                        {canShowRemove ? (
                           <button
                             type="button"
-                            className={btnKick}
+                            className={removeLink}
                             onClick={() => setKickConfirmUserId(g.userId)}
                             disabled={kickBusyUserId != null}
                           >
@@ -175,40 +213,42 @@ export function GuestListDialog({
                           </button>
                         ) : null}
                       </div>
-                      {confirmingKick ? (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2 py-2">
-                          <p className="text-foreground min-w-0 flex-1 text-xs leading-snug">
-                            Remove{" "}
-                            <span className="font-semibold">{g.label}</span>{" "}
-                            from the room?
-                          </p>
-                          <button
-                            type="button"
-                            className="bg-destructive text-destructive-foreground hover:brightness-105 inline-flex min-h-8 items-center justify-center rounded-lg px-2.5 text-xs font-bold disabled:opacity-45"
-                            disabled={kickBusyUserId != null}
-                            onClick={() => void onKickGuest?.(g.userId)}
-                          >
-                            {kickBusyUserId === g.userId ? "Removing…" : "Remove"}
-                          </button>
-                          <button
-                            type="button"
-                            className="text-muted-foreground hover:text-foreground inline-flex min-h-8 items-center justify-center rounded-lg px-2 text-xs font-semibold"
-                            disabled={kickBusyUserId != null}
-                            onClick={() => setKickConfirmUserId(null)}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : null}
-                      <span className="text-muted-foreground text-xs">
-                        {formatActivity(g.lastSeenAt)}
-                      </span>
                     </li>
                   );
                 })}
               </ul>
             )}
           </div>
+
+          {kickConfirmUserId != null && confirmGuest ? (
+            <div className="border-border/80 bg-muted/35 supports-[backdrop-filter]:bg-muted/25 shrink-0 border-t px-5 py-4 backdrop-blur-sm">
+              <p className="text-foreground text-sm leading-snug">
+                Remove{" "}
+                <span className="font-semibold">{confirmGuest.label}</span> from
+                this room? They can rejoin with the invite link.
+              </p>
+              <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-3">
+                <button
+                  type="button"
+                  className="border-border text-foreground hover:bg-background/80 focus-visible:ring-ring inline-flex min-h-10 w-full items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45 sm:w-auto sm:min-w-[5.5rem]"
+                  disabled={kickBusyUserId != null}
+                  onClick={() => setKickConfirmUserId(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="bg-destructive text-destructive-foreground hover:brightness-105 focus-visible:ring-ring inline-flex min-h-10 w-full items-center justify-center rounded-xl px-4 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45 sm:w-auto sm:min-w-[5.5rem]"
+                  disabled={kickBusyUserId != null}
+                  onClick={() => void onKickGuest?.(kickConfirmUserId)}
+                >
+                  {kickBusyUserId === kickConfirmUserId
+                    ? "Removing…"
+                    : "Remove from room"}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </dialog>
