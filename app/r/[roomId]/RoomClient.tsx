@@ -298,8 +298,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
   const reactionSeqRef = useRef(0);
-  const reactionLongPressRef = useRef(false);
+  const reactionHoldActiveRef = useRef(false);
   const reactionPressTimerRef = useRef<number | null>(null);
+  const reactionRepeatTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
   const playbackReconcileTimerRef = useRef<number | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -553,23 +554,37 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [spawnReaction]);
 
   const beginReactionPress = useCallback(() => {
-    reactionLongPressRef.current = false;
+    reactionHoldActiveRef.current = false;
     if (reactionPressTimerRef.current != null) {
       window.clearTimeout(reactionPressTimerRef.current);
     }
+    if (reactionRepeatTimerRef.current != null) {
+      window.clearInterval(reactionRepeatTimerRef.current);
+      reactionRepeatTimerRef.current = null;
+    }
     reactionPressTimerRef.current = window.setTimeout(() => {
-      reactionLongPressRef.current = true;
-      setReactionPickerOpen(true);
+      reactionHoldActiveRef.current = true;
+      void sendReaction(defaultReaction);
+      reactionRepeatTimerRef.current = window.setInterval(() => {
+        void sendReaction(defaultReaction);
+      }, 260);
       reactionPressTimerRef.current = null;
     }, 380);
-  }, []);
+  }, [defaultReaction, sendReaction]);
 
   const endReactionPress = useCallback(() => {
     if (reactionPressTimerRef.current != null) {
       window.clearTimeout(reactionPressTimerRef.current);
       reactionPressTimerRef.current = null;
     }
-    if (reactionLongPressRef.current) return;
+    if (reactionRepeatTimerRef.current != null) {
+      window.clearInterval(reactionRepeatTimerRef.current);
+      reactionRepeatTimerRef.current = null;
+    }
+    if (reactionHoldActiveRef.current) {
+      reactionHoldActiveRef.current = false;
+      return;
+    }
     void sendReaction(defaultReaction);
   }, [defaultReaction, sendReaction]);
 
@@ -578,12 +593,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       window.clearTimeout(reactionPressTimerRef.current);
       reactionPressTimerRef.current = null;
     }
+    if (reactionRepeatTimerRef.current != null) {
+      window.clearInterval(reactionRepeatTimerRef.current);
+      reactionRepeatTimerRef.current = null;
+    }
+    reactionHoldActiveRef.current = false;
   }, []);
 
   useEffect(() => {
     return () => {
       if (reactionPressTimerRef.current != null) {
         window.clearTimeout(reactionPressTimerRef.current);
+      }
+      if (reactionRepeatTimerRef.current != null) {
+        window.clearInterval(reactionRepeatTimerRef.current);
       }
     };
   }, []);
@@ -2099,13 +2122,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                     return (
                       <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
                         {!mine ? (
-                          <span className="border-border bg-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-hidden
+                            className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
+                          >
                             {msg.avatarDataUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={msg.avatarDataUrl}
                                 alt={msg.senderLabel}
                                 className="size-full object-cover"
+                                draggable={false}
                               />
                             ) : (
                               <svg
@@ -2120,7 +2149,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                                 <path d="M5 19a7 7 0 0 1 14 0" />
                               </svg>
                             )}
-                          </span>
+                          </button>
                         ) : null}
                         <div
                           className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
@@ -2131,13 +2160,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                           <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
                         </div>
                         {mine ? (
-                          <span className="border-border bg-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border">
+                          <button
+                            type="button"
+                            tabIndex={-1}
+                            aria-hidden
+                            className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
+                          >
                             {msg.avatarDataUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img
                                 src={msg.avatarDataUrl}
                                 alt={msg.senderLabel}
                                 className="size-full object-cover"
+                                draggable={false}
                               />
                             ) : (
                               <svg
@@ -2152,7 +2187,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                                 <path d="M5 19a7 7 0 0 1 14 0" />
                               </svg>
                             )}
-                          </span>
+                          </button>
                         ) : null}
                       </div>
                     );
