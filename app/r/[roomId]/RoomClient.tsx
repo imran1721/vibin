@@ -252,6 +252,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [guestCount, setGuestCount] = useState(0);
   const [guestRoster, setGuestRoster] = useState<GuestListEntry[]>([]);
   const [guestListOpen, setGuestListOpen] = useState(false);
+  const [kickGuestBusyId, setKickGuestBusyId] = useState<string | null>(null);
+  const [removedFromRoomToast, setRemovedFromRoomToast] = useState<
+    string | null
+  >(null);
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [joinToastMessage, setJoinToastMessage] = useState<string | null>(
     null
@@ -362,6 +366,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     })();
   }, [router]);
 
+  const leaveToHomeRef = useRef(leaveToHome);
+  useEffect(() => {
+    leaveToHomeRef.current = leaveToHome;
+  }, [leaveToHome]);
+
   const loadQueue = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
     const { data, error } = await supabase
@@ -421,6 +430,29 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     );
   }, [roomId]);
 
+  const handleKickGuest = useCallback(
+    async (guestUserId: string) => {
+      if (!guestUserId) return;
+      setKickGuestBusyId(guestUserId);
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("host_kick_guest", {
+          p_room_id: roomId,
+          p_guest_user_id: guestUserId,
+          p_host_token: hostTokenForRpc,
+        });
+        if (error) {
+          console.error(error);
+          return;
+        }
+        await loadRoomPresence();
+      } finally {
+        setKickGuestBusyId(null);
+      }
+    },
+    [roomId, hostTokenForRpc, loadRoomPresence]
+  );
+
   const handleProfileSaved = useCallback(() => {
     setProfilePhotoDataUrl(getDisplayAvatarDataUrl());
     setLocalDisplayLabel(getQueueAttributionLabel() ?? "Anonymous");
@@ -441,6 +473,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [roomId, loadRoomPresence]);
 
   const dismissJoinToast = useCallback(() => setJoinToastMessage(null), []);
+
+  const dismissRemovedFromRoomToast = useCallback(
+    () => setRemovedFromRoomToast(null),
+    []
+  );
 
   const dismissActivityToast = useCallback(
     () => setActivityToastMessage(null),
@@ -939,7 +976,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               : new Date().toISOString();
           const avatarDataUrl =
             typeof p.avatarDataUrl === "string" &&
-            p.avatarDataUrl.startsWith("data:image/")
+              p.avatarDataUrl.startsWith("data:image/")
               ? p.avatarDataUrl
               : null;
           setChatMessages((prev) => [
@@ -1064,6 +1101,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               const row = payload.old as { user_id?: string; role?: string };
               if (row.role !== "guest" || !row.user_id) return;
               const leftUserId = row.user_id;
+              if (leftUserId === currentUserIdRef.current) {
+                setRemovedFromRoomToast("The host removed you from this room.");
+                window.setTimeout(() => {
+                  leaveToHomeRef.current?.();
+                }, 2400);
+                return;
+              }
               setGuestCount((c) => Math.max(0, c - 1));
               setGuestRoster((prev) => prev.filter((g) => g.userId !== leftUserId));
               if (guestListOpenRef.current) void loadRoomPresence();
@@ -1906,8 +1950,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         onDismiss={dismissChatToast}
         variant="stacked3"
       />
+      <RoomGuestJoinToast
+        message={removedFromRoomToast}
+        onDismiss={dismissRemovedFromRoomToast}
+      />
       {reactions.length > 0 ? (
-        <div className="pointer-events-none fixed inset-0 z-[58] overflow-hidden" aria-hidden>
+        <div className="pointer-events-none fixed inset-0 z-[72] overflow-hidden" aria-hidden>
           {reactions.map((reaction) => (
             <span
               key={reaction.id}
@@ -1927,7 +1975,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           transition: "background-image 700ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
-        <div className="mx-auto inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setGuestListOpen(true)}
+          className="border-border/70 bg-card/70 hover:bg-card/85 focus-visible:ring-ring mx-auto inline-flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          title={
+            isHost
+              ? "Guest list — remove people from the room"
+              : "Who is in the room"
+          }
+          aria-label={isHost ? "Open guest list" : "Who is watching"}
+        >
           <div className="flex items-center">
             {Array.from({ length: visiblePresenceDots }, (_, idx) => (
               <span
@@ -1938,13 +1996,14 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             ))}
           </div>
           <p className="text-foreground text-xs font-semibold tracking-tight sm:text-sm">
-            {peopleWatchingCount} {peopleWatchingCount === 1 ? "person" : "people"} watching
+            {peopleWatchingCount}{" "}
+            {peopleWatchingCount === 1 ? "person" : "people"} watching
           </p>
           <span className="text-primary">•</span>
           <p className="text-primary text-xs font-semibold tracking-tight sm:text-sm">
             {playbackControlLabel}
           </p>
-        </div>
+        </button>
         <div className="mx-auto mt-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs">
           <span className="text-foreground">You:</span>
           <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
@@ -1956,25 +2015,24 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           {isHost || guestShowSyncedVideo ? (
             <>
               <div ref={videoFrameRef}>
-              <YouTubeSyncPlayer
-                ref={syncPlayerRef}
-                videoId={nowPlaying?.video_id ?? null}
-                remotePaused={playbackPaused}
-                anchorSec={playbackAnchorSec}
-                anchorAtIso={playbackAnchorAt}
-                isHost={isHost}
-                onHostVideoEnded={advanceToNextTrack}
-                onPlaybackScrub={isHost ? reportIframeSeek : undefined}
-                onIframePausePlay={reportIframePausePlay}
-                onAutoResync={handleAutoResyncNotice}
-                forceResyncToken={forceResyncToken}
-              />
+                <YouTubeSyncPlayer
+                  ref={syncPlayerRef}
+                  videoId={nowPlaying?.video_id ?? null}
+                  remotePaused={playbackPaused}
+                  anchorSec={playbackAnchorSec}
+                  anchorAtIso={playbackAnchorAt}
+                  isHost={isHost}
+                  onHostVideoEnded={advanceToNextTrack}
+                  onPlaybackScrub={isHost ? reportIframeSeek : undefined}
+                  onIframePausePlay={reportIframePausePlay}
+                  onAutoResync={handleAutoResyncNotice}
+                  forceResyncToken={forceResyncToken}
+                />
               </div>
-              {activePanel === "now" ? (
-                <div className="-mt-13 mr-3 z-20 self-end">
-                  <div className="relative flex items-end justify-end">
-                    {reactionPickerOpen ? (
-                      <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
+              <div className="-mt-13 mr-3 z-20 self-end">
+                <div className="relative flex items-end justify-end">
+                  {reactionPickerOpen ? (
+                    <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
                       {["🔥", "👏", "😂", "❤️", "🎉", "🤯"].map((emoji) => (
                         <button
                           key={emoji}
@@ -1990,29 +2048,28 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                           {emoji}
                         </button>
                       ))}
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onPointerDown={beginReactionPress}
-                      onPointerUp={endReactionPress}
-                      onPointerCancel={cancelReactionPress}
-                      onPointerLeave={cancelReactionPress}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setReactionPickerOpen(true);
-                      }}
-                      className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
-                      aria-label={`Send default reaction ${defaultReaction}. Long press to change.`}
-                      title="Tap to react · long-press to change default"
-                    >
-                      <span className="pointer-events-none select-none" aria-hidden>
-                        {defaultReaction}
-                      </span>
-                    </button>
-                  </div>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onPointerDown={beginReactionPress}
+                    onPointerUp={endReactionPress}
+                    onPointerCancel={cancelReactionPress}
+                    onPointerLeave={cancelReactionPress}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setReactionPickerOpen(true);
+                    }}
+                    className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
+                    aria-label={`Send default reaction ${defaultReaction}. Long press to change.`}
+                    title="Tap to react · long-press to change default"
+                  >
+                    <span className="pointer-events-none select-none" aria-hidden>
+                      {defaultReaction}
+                    </span>
+                  </button>
                 </div>
-              ) : null}
+              </div>
             </>
           ) : (
             <button
@@ -2134,18 +2191,16 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             </section>
           ) : null}
           <section
-            className={`w-full max-w-2xl min-h-0 flex-1 ${
-              activePanel === "search" ? "" : "hidden"
-            }`}
+            className={`w-full max-w-2xl min-h-0 flex-1 ${activePanel === "search" ? "" : "hidden"
+              }`}
           >
             {hasOpenedSearch ? (
               <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
             ) : null}
           </section>
           <section
-            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 ${
-              activePanel === "chat" ? "" : "hidden"
-            }`}
+            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 ${activePanel === "chat" ? "" : "hidden"
+              }`}
           >
             <div className="flex h-full min-h-0 flex-col">
               <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
@@ -2262,9 +2317,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           </section>
           {isHost ? (
             <section
-              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 ${
-                activePanel === "playlists" ? "" : "hidden"
-              }`}
+              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 ${activePanel === "playlists" ? "" : "hidden"
+                }`}
             >
               {hasOpenedPlaylists ? (
                 <Suspense
@@ -2360,6 +2414,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         guests={guestRoster}
         currentUserId={sessionUserId}
         onRefresh={() => void loadRoomPresence()}
+        isHost={isHost}
+        onKickGuest={handleKickGuest}
+        kickBusyUserId={kickGuestBusyId}
       />
       <RoomProfileSettingsDialog
         open={settingsOpen}

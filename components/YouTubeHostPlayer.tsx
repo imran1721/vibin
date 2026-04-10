@@ -28,7 +28,9 @@ type Props = {
    */
   onPlaybackScrub?: (seconds: number) => void;
   /**
-   * Host or guest used the iframe play/pause control; sync room state + anchor time.
+   * User used the iframe play/pause control — sync room state + anchor time.
+   * Pauses while the page is hidden (lock, app switch, background tab) are not
+   * broadcast; foreground resume replays locally when the room is still playing.
    */
   onIframePausePlay?: (paused: boolean, anchorSeconds: number) => void;
   /** Called when the client auto-seeks to realign with room playback. */
@@ -71,6 +73,12 @@ const GUEST_DRIFT_THRESHOLD = 2;
 const SUPPRESS_IFRAME_PAUSE_MS = 280;
 /** YouTube often ignores startSeconds until after cue; re-seek after load (guest opt-in, track change). */
 const POST_LOAD_SYNC_MS = [380, 1100] as const;
+/**
+ * Defer pause/play sync to the room so we can tell intentional controls from
+ * OS/tab/lock backgrounding (Page Visibility). If the page is hidden after
+ * this delay, we do not broadcast pause/play.
+ */
+const PAUSE_PLAY_BROADCAST_DEFER_MS = 85;
 
 export const YouTubeSyncPlayer = forwardRef<
   YouTubeSyncPlayerHandle,
@@ -109,6 +117,7 @@ export const YouTubeSyncPlayer = forwardRef<
   const [syncState, setSyncState] = useState<"synced" | "resyncing">("synced");
   const resyncToastCooldownUntilRef = useRef(0);
   const resyncIndicatorTimerRef = useRef<number | null>(null);
+  const pausePlayBroadcastTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     onEndedRef.current = onHostVideoEnded;
@@ -175,6 +184,28 @@ export const YouTubeSyncPlayer = forwardRef<
     };
   }, []);
 
+  /** When returning from lock / app switch, resume local player if the room is still playing (no RPC). */
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!playerRef.current || !videoId) return;
+      if (pausedRef.current) return;
+      suppressProgrammaticPausePlayRef.current = true;
+      try {
+        playerRef.current.playVideo();
+      } catch {
+        /* ignore */
+      } finally {
+        window.setTimeout(() => {
+          suppressProgrammaticPausePlayRef.current = false;
+        }, SUPPRESS_IFRAME_PAUSE_MS);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [playerReady, videoId]);
+
   useEffect(() => {
     let cancelled = false;
     const outer = containerRef.current;
@@ -237,16 +268,40 @@ export const YouTubeSyncPlayer = forwardRef<
             if (Date.now() < iframeIgnoreUntilRef.current) return;
             if (suppressProgrammaticPausePlayRef.current) return;
 
+            if (pausePlayBroadcastTimerRef.current != null) {
+              window.clearTimeout(pausePlayBroadcastTimerRef.current);
+              pausePlayBroadcastTimerRef.current = null;
+            }
+
+            const schedulePausePlayBroadcast = (
+              paused: boolean,
+              anchorSeconds: number
+            ) => {
+              pausePlayBroadcastTimerRef.current = window.setTimeout(() => {
+                pausePlayBroadcastTimerRef.current = null;
+                if (Date.now() < iframeIgnoreUntilRef.current) return;
+                if (suppressProgrammaticPausePlayRef.current) return;
+                if (typeof document !== "undefined" && document.hidden) return;
+                const c = onIframePausePlayRef.current;
+                if (!c) return;
+                if (paused && remotePausedRef.current) return;
+                if (!paused && !remotePausedRef.current) return;
+                const pl2 = playerRef.current;
+                const t2 = Math.max(0, pl2?.getCurrentTime?.() ?? anchorSeconds);
+                c(paused, t2);
+              }, PAUSE_PLAY_BROADCAST_DEFER_MS);
+            };
+
             const pl = playerRef.current;
             const t = pl?.getCurrentTime?.() ?? 0;
 
             if (e.data === YT.PlayerState.PAUSED) {
               if (!remotePausedRef.current) {
-                cb(true, Math.max(0, t));
+                schedulePausePlayBroadcast(true, Math.max(0, t));
               }
             } else if (e.data === YT.PlayerState.PLAYING) {
               if (remotePausedRef.current) {
-                cb(false, Math.max(0, t));
+                schedulePausePlayBroadcast(false, Math.max(0, t));
               }
             }
           },
@@ -258,6 +313,10 @@ export const YouTubeSyncPlayer = forwardRef<
 
     return () => {
       cancelled = true;
+      if (pausePlayBroadcastTimerRef.current != null) {
+        window.clearTimeout(pausePlayBroadcastTimerRef.current);
+        pausePlayBroadcastTimerRef.current = null;
+      }
       setPlayerReady(false);
       playerRef.current?.destroy();
       playerRef.current = null;

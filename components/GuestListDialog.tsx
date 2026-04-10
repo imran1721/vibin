@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const iconBtn =
   "text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -33,7 +33,14 @@ type Props = {
   guests: GuestListEntry[];
   currentUserId: string | null;
   onRefresh: () => void;
+  /** When set, host can remove guests from the room */
+  isHost?: boolean;
+  onKickGuest?: (userId: string) => void | Promise<void>;
+  kickBusyUserId?: string | null;
 };
+
+const btnKick =
+  "text-destructive hover:bg-destructive/10 focus-visible:ring-destructive/40 inline-flex min-h-9 shrink-0 items-center justify-center rounded-lg px-2.5 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45";
 
 export function GuestListDialog({
   open,
@@ -41,8 +48,14 @@ export function GuestListDialog({
   guests,
   currentUserId,
   onRefresh,
+  isHost = false,
+  onKickGuest,
+  kickBusyUserId = null,
 }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const [kickConfirmUserId, setKickConfirmUserId] = useState<string | null>(
+    null
+  );
 
   useEffect(() => {
     const d = dialogRef.current;
@@ -61,6 +74,19 @@ export function GuestListDialog({
       d.close();
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) setKickConfirmUserId(null);
+  }, [open]);
+
+  useEffect(() => {
+    if (
+      kickConfirmUserId != null &&
+      !guests.some((g) => g.userId === kickConfirmUserId)
+    ) {
+      setKickConfirmUserId(null);
+    }
+  }, [guests, kickConfirmUserId]);
 
   return (
     <dialog
@@ -119,21 +145,61 @@ export function GuestListDialog({
               <ul className="divide-border divide-y" role="list">
                 {guests.map((g) => {
                   const isYou = g.userId === currentUserId;
+                  const showKick =
+                    isHost && onKickGuest && !isYou && kickConfirmUserId !== g.userId;
+                  const confirmingKick = kickConfirmUserId === g.userId;
                   return (
                     <li
                       key={g.userId}
                       className="flex flex-col gap-0.5 px-3.5 py-3 sm:px-4"
                     >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="text-foreground truncate font-semibold">
-                          {g.label}
-                        </span>
-                        {isYou ? (
-                          <span className="bg-accent/15 text-accent border-accent/25 shrink-0 rounded-full border px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide">
-                            You
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="text-foreground truncate font-semibold">
+                            {g.label}
                           </span>
+                          {isYou ? (
+                            <span className="bg-accent/15 text-accent border-accent/25 shrink-0 rounded-full border px-2 py-0.5 text-[0.6rem] font-bold uppercase tracking-wide">
+                              You
+                            </span>
+                          ) : null}
+                        </div>
+                        {showKick ? (
+                          <button
+                            type="button"
+                            className={btnKick}
+                            onClick={() => setKickConfirmUserId(g.userId)}
+                            disabled={kickBusyUserId != null}
+                          >
+                            Remove
+                          </button>
                         ) : null}
                       </div>
+                      {confirmingKick ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2 py-2">
+                          <p className="text-foreground min-w-0 flex-1 text-xs leading-snug">
+                            Remove{" "}
+                            <span className="font-semibold">{g.label}</span>{" "}
+                            from the room?
+                          </p>
+                          <button
+                            type="button"
+                            className="bg-destructive text-destructive-foreground hover:brightness-105 inline-flex min-h-8 items-center justify-center rounded-lg px-2.5 text-xs font-bold disabled:opacity-45"
+                            disabled={kickBusyUserId != null}
+                            onClick={() => void onKickGuest?.(g.userId)}
+                          >
+                            {kickBusyUserId === g.userId ? "Removing…" : "Remove"}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-muted-foreground hover:text-foreground inline-flex min-h-8 items-center justify-center rounded-lg px-2 text-xs font-semibold"
+                            disabled={kickBusyUserId != null}
+                            onClick={() => setKickConfirmUserId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : null}
                       <span className="text-muted-foreground text-xs">
                         {formatActivity(g.lastSeenAt)}
                       </span>
