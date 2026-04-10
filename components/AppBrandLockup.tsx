@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { VibinMark } from "@/components/VibinMark";
+import { VibinEqualizerMark } from "@/components/VibinEqualizerMark";
 
 /** Short line under the app name — keep in sync with marketing copy. */
 export const APP_TAGLINE = "YouTube watch parties";
@@ -27,7 +27,7 @@ export function AppBrandLockup({
     markClassName ?? "size-10 shrink-0 sm:size-11";
   return (
     <div className={`flex items-center gap-3 ${className}`.trim()}>
-      <VibinMark className={mark} />
+      <VibinEqualizerMark className={mark} />
       <div className="min-w-0 flex-1 space-y-0.5">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <p className="text-accent font-display text-sm font-bold tracking-tight">

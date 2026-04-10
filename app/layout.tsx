@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
 import { AnalyticsSession } from "@/components/AnalyticsSession";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
+import { SplashScreen } from "@/components/SplashScreen";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -20,6 +21,14 @@ export const metadata: Metadata = {
   title: "vibin.click — Watch YouTube together",
   description:
     "Share a link and watch YouTube in sync—no login, no install. Friends queue from their phones.",
+  icons: {
+    icon: [
+      { url: "/icon/32", sizes: "32x32", type: "image/png" },
+      { url: "/icon/192", sizes: "192x192", type: "image/png" },
+      { url: "/icon/512", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
+  },
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -55,7 +64,7 @@ export default function RootLayout({
       <body className="bg-background text-foreground min-h-full flex flex-col font-sans">
         <AnalyticsSession />
         <ServiceWorkerRegistration />
-        {children}
+        <SplashScreen>{children}</SplashScreen>
       </body>
     </html>
   );

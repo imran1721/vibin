@@ -249,3 +249,86 @@ body {
   }
 }
 
+/* Launch splash — soft motion + progress line */
+@keyframes vibin-splash-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+
+@keyframes vibin-splash-progress-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.vibin-splash-mark-wrap {
+  animation: vibin-splash-float 3.2s ease-in-out infinite;
+}
+
+.vibin-splash-progress {
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: vibin-splash-progress-fill 1.05s cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vibin-splash-mark-wrap {
+    animation: none;
+  }
+
+  .vibin-splash-progress {
+    animation: none;
+    transform: scaleX(1);
+    opacity: 0.45;
+  }
+}
+
+/* Animated mark — equalizer bars (transform-only, compositor-friendly) */
+@keyframes vibin-eq-mark-bar {
+  0%,
+  100% {
+    transform: scaleY(0.68);
+    opacity: 0.82;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.vibin-eq-mark .vibin-eq-bar {
+  transform-origin: center bottom;
+  transform-box: fill-box;
+  animation: vibin-eq-mark-bar 1.25s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+
+.vibin-eq-mark .vibin-eq-bar-1 {
+  animation-delay: 0ms;
+}
+
+.vibin-eq-mark .vibin-eq-bar-2 {
+  animation-delay: 140ms;
+}
+
+.vibin-eq-mark .vibin-eq-bar-3 {
+  animation-delay: 280ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vibin-eq-mark .vibin-eq-bar {
+    animation: none;
+    transform: scaleY(0.82);
+    opacity: 0.95;
+  }
+}
+

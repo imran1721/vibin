@@ -1,54 +1,58 @@
-/** Shared visual for favicon / PWA / Apple touch (ImageResponse subtree). */
+/**
+ * Static favicon / PWA / Apple touch art — same 32×32 geometry as `VibinEqualizerMark`.
+ * Uses nested flex layouts so `@vercel/og` / Satori accepts the tree (no multi-child div without display).
+ */
 export function VibinAppIconMark({ size }: { size: number }) {
-  const barW = Math.max(2, Math.round(size * 0.14));
-  const gap = Math.round(size * 0.09);
-  const rOuter = Math.round(size * 0.25);
-  const rBar = Math.round(barW / 2);
-  const h1 = Math.round(size * 0.31);
-  const h2 = Math.round(size * 0.53);
-  const h3 = Math.round(size * 0.44);
+  const s = size / 32;
+  const rOuter = 8 * s;
+  const rBar = 2 * s;
+  const gap = 3 * s;
+  const padBottom = 4 * s;
 
   return (
     <div
       style={{
-        width: "100%",
-        height: "100%",
+        width: size,
+        height: size,
         display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
         alignItems: "center",
-        justifyContent: "center",
         background: "#1c1412",
         borderRadius: rOuter,
+        paddingBottom: padBottom,
+        boxSizing: "border-box",
       }}
     >
       <div
         style={{
           display: "flex",
+          flexDirection: "row",
           alignItems: "flex-end",
           justifyContent: "center",
           gap,
-          marginBottom: Math.round(size * 0.14),
         }}
       >
         <div
           style={{
-            width: barW,
-            height: h1,
+            width: 4 * s,
+            height: 10 * s,
             background: "#e8945c",
             borderRadius: rBar,
           }}
         />
         <div
           style={{
-            width: barW,
-            height: h2,
+            width: 4 * s,
+            height: 17 * s,
             background: "#e8945c",
             borderRadius: rBar,
           }}
         />
         <div
           style={{
-            width: barW,
-            height: h3,
+            width: 4 * s,
+            height: 14 * s,
             background: "#5eb8c4",
             borderRadius: rBar,
           }}
