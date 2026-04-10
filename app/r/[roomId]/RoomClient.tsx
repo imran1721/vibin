@@ -299,8 +299,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const guestListOpenRef = useRef(false);
   const reactionSeqRef = useRef(0);
   const reactionHoldActiveRef = useRef(false);
+  const reactionPickerHoldActiveRef = useRef(false);
   const reactionPressTimerRef = useRef<number | null>(null);
   const reactionRepeatTimerRef = useRef<number | null>(null);
+  const reactionPickerTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
   const playbackReconcileTimerRef = useRef<number | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -555,12 +557,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const beginReactionPress = useCallback(() => {
     reactionHoldActiveRef.current = false;
+    reactionPickerHoldActiveRef.current = false;
     if (reactionPressTimerRef.current != null) {
       window.clearTimeout(reactionPressTimerRef.current);
     }
     if (reactionRepeatTimerRef.current != null) {
       window.clearInterval(reactionRepeatTimerRef.current);
       reactionRepeatTimerRef.current = null;
+    }
+    if (reactionPickerTimerRef.current != null) {
+      window.clearTimeout(reactionPickerTimerRef.current);
+      reactionPickerTimerRef.current = null;
     }
     reactionPressTimerRef.current = window.setTimeout(() => {
       reactionHoldActiveRef.current = true;
@@ -570,16 +577,40 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }, 260);
       reactionPressTimerRef.current = null;
     }, 380);
-  }, [defaultReaction, sendReaction]);
+
+    // Extra-long press opens picker so users can still change default emoji.
+    reactionPickerTimerRef.current = window.setTimeout(() => {
+      reactionPickerHoldActiveRef.current = true;
+      if (reactionPressTimerRef.current != null) {
+        window.clearTimeout(reactionPressTimerRef.current);
+        reactionPressTimerRef.current = null;
+      }
+      if (reactionRepeatTimerRef.current != null) {
+        window.clearInterval(reactionRepeatTimerRef.current);
+        reactionRepeatTimerRef.current = null;
+      }
+      setReactionPickerOpen(true);
+      reactionPickerTimerRef.current = null;
+    }, 900);
+  }, [defaultReaction, sendReaction, setReactionPickerOpen]);
 
   const endReactionPress = useCallback(() => {
     if (reactionPressTimerRef.current != null) {
       window.clearTimeout(reactionPressTimerRef.current);
       reactionPressTimerRef.current = null;
     }
+    if (reactionPickerTimerRef.current != null) {
+      window.clearTimeout(reactionPickerTimerRef.current);
+      reactionPickerTimerRef.current = null;
+    }
     if (reactionRepeatTimerRef.current != null) {
       window.clearInterval(reactionRepeatTimerRef.current);
       reactionRepeatTimerRef.current = null;
+    }
+    if (reactionPickerHoldActiveRef.current) {
+      reactionPickerHoldActiveRef.current = false;
+      reactionHoldActiveRef.current = false;
+      return;
     }
     if (reactionHoldActiveRef.current) {
       reactionHoldActiveRef.current = false;
@@ -593,10 +624,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       window.clearTimeout(reactionPressTimerRef.current);
       reactionPressTimerRef.current = null;
     }
+    if (reactionPickerTimerRef.current != null) {
+      window.clearTimeout(reactionPickerTimerRef.current);
+      reactionPickerTimerRef.current = null;
+    }
     if (reactionRepeatTimerRef.current != null) {
       window.clearInterval(reactionRepeatTimerRef.current);
       reactionRepeatTimerRef.current = null;
     }
+    reactionPickerHoldActiveRef.current = false;
     reactionHoldActiveRef.current = false;
   }, []);
 
@@ -607,6 +643,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }
       if (reactionRepeatTimerRef.current != null) {
         window.clearInterval(reactionRepeatTimerRef.current);
+      }
+      if (reactionPickerTimerRef.current != null) {
+        window.clearTimeout(reactionPickerTimerRef.current);
       }
     };
   }, []);
@@ -1963,11 +2002,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                         e.preventDefault();
                         setReactionPickerOpen(true);
                       }}
-                      className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors"
+                      className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
                       aria-label={`Send default reaction ${defaultReaction}. Long press to change.`}
                       title="Tap to react · long-press to change default"
                     >
-                      {defaultReaction}
+                      <span className="pointer-events-none select-none" aria-hidden>
+                        {defaultReaction}
+                      </span>
                     </button>
                   </div>
                 </div>
