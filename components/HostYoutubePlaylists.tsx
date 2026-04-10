@@ -14,6 +14,8 @@ type Props = {
   omitSectionChrome?: boolean;
   /** YouTube `videoId`s already in the room queue — per-track button shows “Added”. */
   queuedVideoIds?: ReadonlySet<string>;
+  /** Optional parent-triggered refresh action (e.g. remount/cache bust). */
+  onRequestRefresh?: () => void;
 };
 
 type Playlist = { id: string; title: string; itemCount?: number };
@@ -40,6 +42,7 @@ export function HostYoutubePlaylists({
   onImported,
   omitSectionChrome = false,
   queuedVideoIds,
+  onRequestRefresh,
 }: Props) {
   const searchParams = useSearchParams();
   const [connected, setConnected] = useState(false);
@@ -255,6 +258,16 @@ export function HostYoutubePlaylists({
     </button>
   );
 
+  const refreshBtn = !plLoading && connected && onRequestRefresh ? (
+    <button
+      type="button"
+      onClick={onRequestRefresh}
+      className="text-muted-foreground hover:text-foreground text-xs font-semibold underline underline-offset-2"
+    >
+      Refresh
+    </button>
+  ) : null;
+
   const inner = (
     <>
 
@@ -271,7 +284,11 @@ export function HostYoutubePlaylists({
       )}
 
       {plLoading && (
-        <p className="text-muted-foreground mt-2.5 text-xs">Checking link…</p>
+        <div className="mt-2.5 flex min-h-0 flex-1 items-center justify-center">
+          <p className="text-muted-foreground text-xs">
+            Tuning the playlist satellites…
+          </p>
+        </div>
       )}
 
       {!plLoading && !connected && (
@@ -294,7 +311,11 @@ export function HostYoutubePlaylists({
 
       {!plLoading && connected && playlists.length > 0 && (
         <div
-          className="mt-3 min-h-0 min-w-0 w-full max-h-[min(48svh,22rem)] overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg sm:max-h-[min(40svh,20rem)]"
+          className={`mt-3 min-h-0 min-w-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-lg ${
+            omitSectionChrome
+              ? "flex-1 max-h-none"
+              : "max-h-[min(48svh,22rem)] sm:max-h-[min(40svh,20rem)]"
+          }`}
           role="region"
           aria-label="Scrollable playlist list"
         >
@@ -417,9 +438,12 @@ export function HostYoutubePlaylists({
 
   if (omitSectionChrome) {
     return (
-      <div className={panelClass}>
-        {disconnectBtn ? (
-          <div className="flex flex-wrap justify-end gap-2">{disconnectBtn}</div>
+      <div className="flex h-full min-h-0 flex-col">
+        {refreshBtn || disconnectBtn ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="mr-auto">{refreshBtn}</div>
+            {disconnectBtn}
+          </div>
         ) : null}
         {inner}
       </div>
@@ -441,7 +465,10 @@ export function HostYoutubePlaylists({
             add everything, or replace the whole queue.
           </p>
         </div>
-        {disconnectBtn}
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <div className="mr-auto">{refreshBtn}</div>
+          {disconnectBtn}
+        </div>
       </div>
       {inner}
     </section>

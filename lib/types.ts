@@ -12,4 +12,5 @@ export type YouTubeSearchItem = {
   videoId: string;
   title: string;
   thumbUrl: string;
+  publishedAt?: string;
 };

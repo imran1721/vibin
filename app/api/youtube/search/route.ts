@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
   }
 
   const q = req.nextUrl.searchParams.get("q")?.trim();
+  const pageToken = req.nextUrl.searchParams.get("pageToken")?.trim() ?? "";
   if (!q || q.length < 2) {
     return NextResponse.json({ items: [] });
   }
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
       url.searchParams.set("type", "video");
       url.searchParams.set("maxResults", "12");
       url.searchParams.set("q", q);
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
       url.searchParams.set("key", apiKey);
       return url.toString();
     },
@@ -43,8 +45,13 @@ export async function GET(req: NextRequest) {
   const data = (await res.json()) as {
     items?: Array<{
       id?: { videoId?: string };
-      snippet?: { title?: string; thumbnails?: { medium?: { url?: string } } };
+      snippet?: {
+        title?: string;
+        publishedAt?: string;
+        thumbnails?: { medium?: { url?: string } };
+      };
     }>;
+    nextPageToken?: string;
   };
 
   const items =
@@ -52,7 +59,8 @@ export async function GET(req: NextRequest) {
       videoId: it.id?.videoId ?? "",
       title: it.snippet?.title ?? "Untitled",
       thumbUrl: it.snippet?.thumbnails?.medium?.url ?? "",
+      publishedAt: it.snippet?.publishedAt ?? "",
     })).filter((it) => it.videoId) ?? [];
 
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, nextPageToken: data.nextPageToken ?? null });
 }

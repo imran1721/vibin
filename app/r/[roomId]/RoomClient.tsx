@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import {
+  getDisplayAvatarDataUrl,
   getQueueAttributionLabel,
   hasCompletedDisplayProfile,
   shouldBroadcastActivity,
@@ -23,12 +24,6 @@ import {
   YouTubeSyncPlayer,
   type YouTubeSyncPlayerHandle,
 } from "@/components/YouTubeHostPlayer";
-import { effectivePlaybackSec } from "@/lib/playback-sync";
-import {
-  NowPlayingQueueRow,
-  QueueList,
-  type QueueListHandle,
-} from "@/components/QueueList";
 import { SearchYouTube } from "@/components/SearchYouTube";
 import { HostYoutubePlaylists } from "@/components/HostYoutubePlaylists";
 import { GuestInviteDialog } from "@/components/GuestInviteDialog";
@@ -41,6 +36,7 @@ import {
   GuestListDialog,
   type GuestListEntry,
 } from "@/components/GuestListDialog";
+import { RoomProfileSettingsDialog } from "@/components/RoomProfileSettingsDialog";
 import {
   clearPartyRoomState,
   GUEST_VIDEO_PREF_KEY,
@@ -70,12 +66,50 @@ const headerToolbarClass =
 const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
+function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlists"; active: boolean }) {
+  const cls = active ? "size-[1.05rem]" : "size-[1.2rem] text-muted-foreground";
+  if (name === "now") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
+        <path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1v-9.5Z" />
+      </svg>
+    );
+  }
+  if (name === "queue") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </svg>
+    );
+  }
+  if (name === "search") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
+      <path d="M9 18V5l10-2v13" />
+      <circle cx="7" cy="18" r="3" />
+      <circle cx="17" cy="16" r="3" />
+    </svg>
+  );
+}
+
 /** Throttled server touch so closed tabs go stale and host can prune. */
 const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
 /** Host-only cleanup interval (must exceed heartbeat + network slack). */
 const HOST_PRUNE_STALE_GUESTS_MS = 90_000;
 /** Guests with no heartbeat for this long are removed by prune (host client or cron). */
 const STALE_GUEST_MINUTES = 3;
+const UPCOMING_QUEUE_INITIAL_RENDER = 60;
+const UPCOMING_QUEUE_BATCH_RENDER = 40;
 
 type PostgresChangePayload<T> = {
   eventType: "INSERT" | "UPDATE" | "DELETE";
@@ -98,70 +132,84 @@ type ReadyCheckState = {
   readyUserIds: string[];
 };
 
+type AmbientTheme = {
+  base: string;
+  glow: string;
+};
+
 function shortTrackTitle(title: string, max = 36): string {
   const t = title.trim();
   return t.length <= max ? t : `${t.slice(0, max)}…`;
 }
 
-const collapsibleTriggerClass =
-  "text-foreground hover:bg-muted/50 focus-visible:ring-ring group flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-lg py-1 pl-0.5 pr-2 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:gap-2 sm:pl-1";
-
-function CollapseChevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      aria-hidden
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`text-muted-foreground size-5 shrink-0 transition-transform duration-300 ease-out motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  );
+function formatIsoDate(iso?: string | null): string {
+  if (!iso) return "";
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return "";
+  return new Date(parsed).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
-const collapsibleEase =
-  "transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.33,1,0.68,1)] motion-reduce:transition-none motion-reduce:duration-0";
+function hashHue(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash) % 360;
+}
 
-type CollapsiblePanelProps = {
-  id: string;
-  open: boolean;
-  labelledBy: string;
-  /** Applied only while open so collapsed state doesn’t reserve vertical gap. */
-  marginClassWhenOpen: string;
-  innerClassName: string;
-  children: React.ReactNode;
-};
+function deriveFallbackAmbient(seed: string): AmbientTheme {
+  const hue = hashHue(seed || "vibin");
+  return {
+    base: `hsl(${hue} 30% 8%)`,
+    glow: `hsla(${hue} 85% 62% / 0.22)`,
+  };
+}
 
-function CollapsiblePanel({
-  id,
-  open,
-  labelledBy,
-  marginClassWhenOpen,
-  innerClassName,
-  children,
-}: CollapsiblePanelProps) {
-  return (
-    <div
-      id={id}
-      role="region"
-      aria-labelledby={labelledBy}
-      aria-hidden={!open}
-      className={`grid min-w-0 w-full overflow-hidden ${collapsibleEase} ${open ? marginClassWhenOpen : ""} ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
-    >
-      <div className="min-h-0 min-w-0">
-        <div
-          className={`min-w-0 max-w-full ${innerClassName}`}
-          inert={!open}
-        >
-          {children}
-        </div>
-      </div>
-    </div>
+function deriveAmbientFromImageData(pixels: Uint8ClampedArray, seed: string): AmbientTheme {
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let count = 0;
+
+  for (let i = 0; i < pixels.length; i += 16) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+    const a = pixels[i + 3];
+    if (a < 140) continue;
+    sumR += r;
+    sumG += g;
+    sumB += b;
+    count += 1;
+  }
+
+  if (count === 0) return deriveFallbackAmbient(seed);
+
+  const avgR = Math.round(sumR / count);
+  const avgG = Math.round(sumG / count);
+  const avgB = Math.round(sumB / count);
+
+  const max = Math.max(avgR, avgG, avgB);
+  const min = Math.min(avgR, avgG, avgB);
+  const chroma = max - min;
+  const sat = Math.min(88, Math.max(46, Math.round((chroma / Math.max(1, max)) * 100)));
+  const hue = chroma === 0 ? hashHue(seed) : Math.round(
+    max === avgR
+      ? ((avgG - avgB) / chroma) * 60 + (avgG < avgB ? 360 : 0)
+      : max === avgG
+        ? ((avgB - avgR) / chroma) * 60 + 120
+        : ((avgR - avgG) / chroma) * 60 + 240
   );
+
+  return {
+    base: `hsl(${hue} 30% 8%)`,
+    glow: `hsla(${hue} ${sat}% 62% / 0.24)`,
+  };
 }
 
 export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
@@ -180,16 +228,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [playbackCurrentItemId, setPlaybackCurrentItemId] = useState<
     string | null
   >(null);
-  const [controlsBusy, setControlsBusy] = useState(false);
   const [queueJumpBusy, setQueueJumpBusy] = useState(false);
   const [clearQueueBusy, setClearQueueBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [queueSectionOpen, setQueueSectionOpen] = useState(true);
-  const [playlistSectionOpen, setPlaylistSectionOpen] = useState(true);
-  /** Whether the now-playing row is inside the queue list’s scroll viewport (any scroll position). */
-  const [nowPlayingVisibleInQueueScroll, setNowPlayingVisibleInQueueScroll] =
-    useState(true);
-  const [queueSectionInView, setQueueSectionInView] = useState(true);
   /** Guests only: load/sync YouTube on this device when true (opt-in). */
   const [guestShowSyncedVideo, setGuestShowSyncedVideo] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
@@ -204,21 +245,43 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   >(null);
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
   const [reactions, setReactions] = useState<RoomReaction[]>([]);
+  const [defaultReaction, setDefaultReaction] = useState("🔥");
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [profileGateDone, setProfileGateDone] = useState(false);
-  const [isCompactMobile, setIsCompactMobile] = useState(false);
   const [forceResyncToken, setForceResyncToken] = useState(0);
   const [readyCheck, setReadyCheck] = useState<ReadyCheckState | null>(null);
+  const [activePanel, setActivePanel] = useState<"now" | "search" | "playlists">("now");
+  const [hasOpenedSearch, setHasOpenedSearch] = useState(false);
+  const [hasOpenedPlaylists, setHasOpenedPlaylists] = useState(false);
+  const [playlistsRefreshToken, setPlaylistsRefreshToken] = useState(0);
+  const [upcomingRenderCount, setUpcomingRenderCount] = useState(
+    UPCOMING_QUEUE_INITIAL_RENDER
+  );
+  const [videoPublishedAtById, setVideoPublishedAtById] = useState<
+    Record<string, string>
+  >({});
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
+    null
+  );
+  const [localDisplayLabel, setLocalDisplayLabel] = useState<string>("Anonymous");
+  const [ambientTheme, setAmbientTheme] = useState<AmbientTheme>(() =>
+    deriveFallbackAmbient(roomId)
+  );
 
-  const queueSectionRef = useRef<HTMLElement | null>(null);
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
-  const queueListRef = useRef<QueueListHandle | null>(null);
+  const videoSectionRef = useRef<HTMLElement | null>(null);
+  const videoFrameRef = useRef<HTMLDivElement | null>(null);
   const advanceInFlightRef = useRef(false);
   const syncPlayerRef = useRef<YouTubeSyncPlayerHandle | null>(null);
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
   const reactionSeqRef = useRef(0);
+  const reactionLongPressRef = useRef(false);
+  const reactionPressTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
+  const playbackReconcileTimerRef = useRef<number | null>(null);
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -236,9 +299,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     );
   }, [justCreated]);
 
-  const onNowPlayingVisibleInQueueChange = useCallback((visible: boolean) => {
-    setNowPlayingVisibleInQueueScroll(visible);
-  }, []);
 
   useEffect(() => {
     setGuestShowSyncedVideo(readGuestShowSyncedVideoPref());
@@ -249,21 +309,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [guestListOpen]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mql = window.matchMedia("(max-width: 639px)");
-    const onChange = (e: MediaQueryListEvent | MediaQueryList) => {
-      setIsCompactMobile(e.matches);
-    };
-    onChange(mql);
-    const listener = (e: MediaQueryListEvent) => onChange(e);
-    mql.addEventListener("change", listener);
-    return () => mql.removeEventListener("change", listener);
+    setProfilePhotoDataUrl(getDisplayAvatarDataUrl());
+    setLocalDisplayLabel(getQueueAttributionLabel() ?? "Anonymous");
   }, []);
-
-  useEffect(() => {
-    if (!isCompactMobile) return;
-    setPlaylistSectionOpen(false);
-  }, [isCompactMobile]);
 
   const setGuestVideoPref = useCallback((show: boolean) => {
     setGuestShowSyncedVideo(show);
@@ -284,24 +332,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       router.push("/");
     })();
   }, [router]);
-
-  useEffect(() => {
-    if (!ready) return;
-    const el = queueSectionRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const e = entries[0];
-        if (!e) return;
-        setQueueSectionInView(
-          e.isIntersecting && e.intersectionRatio > 0.08
-        );
-      },
-      { threshold: [0, 0.05, 0.08, 0.12, 0.2, 0.35, 0.5] }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [ready]);
 
   const loadQueue = useCallback(async () => {
     const supabase = getSupabaseBrowserClient();
@@ -361,6 +391,25 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       })
     );
   }, [roomId]);
+
+  const handleProfileSaved = useCallback(() => {
+    setProfilePhotoDataUrl(getDisplayAvatarDataUrl());
+    setLocalDisplayLabel(getQueueAttributionLabel() ?? "Anonymous");
+    void (async () => {
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("touch_room_presence", {
+          p_room_id: roomId,
+          p_display_name: getQueueAttributionLabel() ?? "",
+        });
+        if (error) console.error("touch_room_presence (profile):", error.message);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        await loadRoomPresence();
+      }
+    })();
+  }, [roomId, loadRoomPresence]);
 
   const dismissJoinToast = useCallback(() => setJoinToastMessage(null), []);
 
@@ -446,11 +495,52 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }
   }, [spawnReaction]);
 
+  const beginReactionPress = useCallback(() => {
+    reactionLongPressRef.current = false;
+    if (reactionPressTimerRef.current != null) {
+      window.clearTimeout(reactionPressTimerRef.current);
+    }
+    reactionPressTimerRef.current = window.setTimeout(() => {
+      reactionLongPressRef.current = true;
+      setReactionPickerOpen(true);
+      reactionPressTimerRef.current = null;
+    }, 380);
+  }, []);
+
+  const endReactionPress = useCallback(() => {
+    if (reactionPressTimerRef.current != null) {
+      window.clearTimeout(reactionPressTimerRef.current);
+      reactionPressTimerRef.current = null;
+    }
+    if (reactionLongPressRef.current) return;
+    void sendReaction(defaultReaction);
+  }, [defaultReaction, sendReaction]);
+
+  const cancelReactionPress = useCallback(() => {
+    if (reactionPressTimerRef.current != null) {
+      window.clearTimeout(reactionPressTimerRef.current);
+      reactionPressTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (reactionPressTimerRef.current != null) {
+        window.clearTimeout(reactionPressTimerRef.current);
+      }
+    };
+  }, []);
+
   useLayoutEffect(() => {
     if (ready && hasCompletedDisplayProfile()) {
       setProfileGateDone(true);
     }
   }, [ready]);
+
+  useEffect(() => {
+    if (!profileGateDone) return;
+    setLocalDisplayLabel(getQueueAttributionLabel() ?? "Anonymous");
+  }, [profileGateDone]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -492,6 +582,27 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       );
     }
   }, [roomId]);
+
+  const schedulePlaybackReconcile = useCallback(
+    (delayMs = 420) => {
+      if (playbackReconcileTimerRef.current != null) {
+        window.clearTimeout(playbackReconcileTimerRef.current);
+      }
+      playbackReconcileTimerRef.current = window.setTimeout(() => {
+        playbackReconcileTimerRef.current = null;
+        void refreshPlaybackState();
+      }, delayMs);
+    },
+    [refreshPlaybackState]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (playbackReconcileTimerRef.current != null) {
+        window.clearTimeout(playbackReconcileTimerRef.current);
+      }
+    };
+  }, []);
 
   const forceRoomResync = useCallback(async () => {
     await Promise.all([loadQueue(), refreshPlaybackState()]);
@@ -619,15 +730,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       const hostRolePromise =
         uid != null
           ? supabase
-              .from("room_members")
-              .select("role")
-              .eq("room_id", roomId)
-              .eq("user_id", uid)
-              .maybeSingle()
-              .then(({ data, error }) => {
-                if (error) console.error(error);
-                return data?.role === "host";
-              })
+            .from("room_members")
+            .select("role")
+            .eq("room_id", roomId)
+            .eq("user_id", uid)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (error) console.error(error);
+              return data?.role === "host";
+            })
           : Promise.resolve(false);
 
       channel = supabase
@@ -959,17 +1070,28 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     if (!effectiveNowId) return -1;
     return queue.findIndex((q) => q.id === effectiveNowId);
   }, [queue, effectiveNowId]);
+  const upcomingQueue = useMemo(() => {
+    if (currentQueueIndex < 0) return [];
+    return queue.slice(currentQueueIndex + 1);
+  }, [queue, currentQueueIndex]);
+  const visibleUpcomingQueue = useMemo(
+    () => upcomingQueue.slice(0, upcomingRenderCount),
+    [upcomingQueue, upcomingRenderCount]
+  );
 
   const canPrev = currentQueueIndex > 0;
 
-  const handleGoToNowPlaying = useCallback(() => {
-    setQueueSectionOpen(true);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        queueListRef.current?.scrollCurrentToTop();
-      });
-    });
-  }, []);
+  const applyOptimisticPlayback = useCallback(
+    (next: { paused: boolean; anchorSec: number; currentItemId?: string | null }) => {
+      if (typeof next.currentItemId !== "undefined") {
+        setPlaybackCurrentItemId(next.currentItemId);
+      }
+      setPlaybackPaused(next.paused);
+      setPlaybackAnchorSec(Math.max(0, next.anchorSec));
+      setPlaybackAnchorAt(new Date().toISOString());
+    },
+    []
+  );
 
   const advanceToNextTrack = useCallback(async () => {
     if (advanceInFlightRef.current) return;
@@ -988,7 +1110,14 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [roomId, hostTokenForRpc, refreshPlaybackState]);
 
   const goPrevious = useCallback(async () => {
-    setControlsBusy(true);
+    const prevItem = currentQueueIndex > 0 ? queue[currentQueueIndex - 1] : null;
+    if (prevItem) {
+      applyOptimisticPlayback({
+        paused: false,
+        anchorSec: 0,
+        currentItemId: prevItem.id,
+      });
+    }
     try {
       const supabase = getSupabaseBrowserClient();
       const { error } = await supabase.rpc("playback_previous", {
@@ -1002,83 +1131,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           void notifyRoomActivity(`${label} went to the previous track`);
         }
       }
-      await refreshPlaybackState();
-    } finally {
-      setControlsBusy(false);
+      schedulePlaybackReconcile();
+    } catch (e) {
+      console.error(e);
+      schedulePlaybackReconcile(0);
     }
-  }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
-
-  const setPaused = useCallback(
-    async (paused: boolean) => {
-      setControlsBusy(true);
-      try {
-        const fromPlayer = syncPlayerRef.current?.getCurrentTime();
-        const fromClock = effectivePlaybackSec(
-          playbackAnchorSec,
-          playbackAnchorAt,
-          playbackPaused
-        );
-        const anchor =
-          fromPlayer != null && Number.isFinite(fromPlayer)
-            ? fromPlayer
-            : fromClock;
-        const supabase = getSupabaseBrowserClient();
-        const { error } = await supabase.rpc("playback_set_paused", {
-          p_room_id: roomId,
-          p_paused: paused,
-          p_anchor_sec: anchor,
-        });
-        if (error) console.error(error);
-        await refreshPlaybackState();
-      } finally {
-        setControlsBusy(false);
-      }
-    },
-    [
-      roomId,
-      refreshPlaybackState,
-      playbackAnchorSec,
-      playbackAnchorAt,
-      playbackPaused,
-    ]
-  );
-
-  const seekBy = useCallback(
-    async (deltaSec: number) => {
-      setControlsBusy(true);
-      try {
-        const fromPlayer = syncPlayerRef.current?.getCurrentTime();
-        const fromClock = effectivePlaybackSec(
-          playbackAnchorSec,
-          playbackAnchorAt,
-          playbackPaused
-        );
-        const base =
-          fromPlayer != null && Number.isFinite(fromPlayer)
-            ? fromPlayer
-            : fromClock;
-        const next = Math.max(0, base + deltaSec);
-        const supabase = getSupabaseBrowserClient();
-        const { error } = await supabase.rpc("playback_seek", {
-          p_room_id: roomId,
-          p_seconds: next,
-          p_host_token: hostTokenForRpc,
-        });
-        if (error) console.error(error);
-        await refreshPlaybackState();
-      } finally {
-        setControlsBusy(false);
-      }
-    },
-    [
-      roomId,
-      hostTokenForRpc,
-      refreshPlaybackState,
-      playbackAnchorSec,
-      playbackAnchorAt,
-      playbackPaused,
-    ]
-  );
+  }, [
+    roomId,
+    hostTokenForRpc,
+    notifyRoomActivity,
+    queue,
+    currentQueueIndex,
+    applyOptimisticPlayback,
+    schedulePlaybackReconcile,
+  ]);
 
   const reportIframeSeek = useCallback(
     async (seconds: number) => {
@@ -1131,7 +1197,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const handleAdd = useCallback(
     async (item: YouTubeSearchItem): Promise<boolean> => {
       const supabase = getSupabaseBrowserClient();
-      const label = getQueueAttributionLabel();
+      const label = localDisplayLabel.trim() || "Anonymous";
       const { data, error } = await supabase
         .from("queue_items")
         .insert({
@@ -1168,32 +1234,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         return true;
       }
     },
-    [roomId, notifyRoomActivity, refreshPlaybackState]
-  );
-
-  const handleRemove = useCallback(
-    async (itemId: string) => {
-      const removed = queue.find((q) => q.id === itemId);
-      const supabase = getSupabaseBrowserClient();
-      const { error } = await supabase.rpc("remove_queue_item", {
-        p_item_id: itemId,
-        p_host_token: hostTokenForRpc,
-      });
-      if (error) console.error(error);
-      else {
-        setQueue((prev) => prev.filter((q) => q.id !== itemId));
-        const label = getQueueAttributionLabel();
-        if (label) {
-          void notifyRoomActivity(
-            removed
-              ? `${label} removed “${shortTrackTitle(removed.title)}”`
-              : `${label} removed a track from the queue`
-          );
-        }
-      }
-      void refreshPlaybackState();
-    },
-    [hostTokenForRpc, notifyRoomActivity, queue, refreshPlaybackState]
+    [roomId, localDisplayLabel, notifyRoomActivity, refreshPlaybackState]
   );
 
   const handlePlayQueueItem = useCallback(
@@ -1201,27 +1242,40 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       if (itemId === nowPlayingId || queueJumpBusy) return;
       const target = queue.find((q) => q.id === itemId);
       if (!target) return;
-      const participantId = getParticipantId();
-      const checkId = `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const nextReady: ReadyCheckState = {
-        id: checkId,
-        targetItemId: target.id,
-        targetTitle: target.title,
-        requiredCount: Math.max(1, guestCount + 1),
-        initiatorId: participantId,
-        readyUserIds: [participantId],
-      };
-      readyCheckHandledRef.current = null;
-      setReadyCheck(nextReady);
-      await broadcastReadyCheckEvent("room_ready_check_start", nextReady);
+      setQueueJumpBusy(true);
+      try {
+        const supabase = getSupabaseBrowserClient();
+        const { error } = await supabase.rpc("jump_to_queue_item", {
+          p_item_id: target.id,
+          p_host_token: hostTokenForRpc,
+        });
+        if (error) {
+          console.error(error);
+          return;
+        }
+        const { error: playError } = await supabase.rpc("playback_set_paused", {
+          p_room_id: roomId,
+          p_paused: false,
+          p_anchor_sec: 0,
+        });
+        if (playError) console.error(playError);
+        const label = getQueueAttributionLabel();
+        if (label) {
+          void notifyRoomActivity(`${label} started “${shortTrackTitle(target.title)}”`);
+        }
+        await refreshPlaybackState();
+      } finally {
+        setQueueJumpBusy(false);
+      }
     },
     [
       nowPlayingId,
       queueJumpBusy,
       queue,
-      getParticipantId,
-      guestCount,
-      broadcastReadyCheckEvent,
+      hostTokenForRpc,
+      roomId,
+      notifyRoomActivity,
+      refreshPlaybackState,
     ]
   );
 
@@ -1229,26 +1283,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     if (queueJumpBusy) return;
     const nextItem = queue[currentQueueIndex + 1];
     if (!nextItem) return;
-    const participantId = getParticipantId();
-    const checkId = `rc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const nextReady: ReadyCheckState = {
-      id: checkId,
-      targetItemId: nextItem.id,
-      targetTitle: nextItem.title,
-      requiredCount: Math.max(1, guestCount + 1),
-      initiatorId: participantId,
-      readyUserIds: [participantId],
-    };
-    readyCheckHandledRef.current = null;
-    setReadyCheck(nextReady);
-    await broadcastReadyCheckEvent("room_ready_check_start", nextReady);
+    await handlePlayQueueItem(nextItem.id);
   }, [
     queueJumpBusy,
     queue,
     currentQueueIndex,
-    getParticipantId,
-    guestCount,
-    broadcastReadyCheckEvent,
+    handlePlayQueueItem,
   ]);
 
   const tapReadyCheck = useCallback(async () => {
@@ -1350,6 +1390,24 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }
   }, [roomId, hostTokenForRpc, notifyRoomActivity, refreshPlaybackState]);
 
+  const removeQueueItem = useCallback(
+    async (item: QueueItem) => {
+      const supabase = getSupabaseBrowserClient();
+      const { error } = await supabase.from("queue_items").delete().eq("id", item.id);
+      if (error) {
+        console.error(error);
+        return;
+      }
+      setQueue((prev) => prev.filter((q) => q.id !== item.id));
+      const label = getQueueAttributionLabel();
+      if (label) {
+        void notifyRoomActivity(`${label} removed “${shortTrackTitle(item.title)}”`);
+      }
+      void refreshPlaybackState();
+    },
+    [notifyRoomActivity, refreshPlaybackState]
+  );
+
   const openGuestInvite = useCallback(() => {
     if (typeof window !== "undefined") {
       setGuestInviteUrl(
@@ -1359,12 +1417,126 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     setInviteOpen(true);
   }, [roomId]);
 
+  useEffect(() => {
+    const videoId = nowPlaying?.video_id ?? "";
+    if (!videoId) {
+      setAmbientTheme(deriveFallbackAmbient(roomId));
+      return;
+    }
+
+    const thumb = nowPlaying?.thumb_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    let cancelled = false;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.decoding = "async";
+
+    image.onload = () => {
+      if (cancelled) return;
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 28;
+        canvas.height = 28;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        if (!ctx) throw new Error("2d context unavailable");
+        ctx.drawImage(image, 0, 0, 28, 28);
+        const data = ctx.getImageData(0, 0, 28, 28).data;
+        setAmbientTheme(deriveAmbientFromImageData(data, videoId));
+      } catch {
+        setAmbientTheme(deriveFallbackAmbient(videoId));
+      }
+    };
+
+    image.onerror = () => {
+      if (!cancelled) setAmbientTheme(deriveFallbackAmbient(videoId));
+    };
+    image.src = thumb;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [nowPlaying?.video_id, nowPlaying?.thumb_url, roomId]);
+
+  useEffect(() => {
+    if (activePanel === "search") {
+      setHasOpenedSearch(true);
+    }
+  }, [activePanel]);
+
+  useEffect(() => {
+    if (activePanel === "playlists") {
+      setHasOpenedPlaylists(true);
+    }
+  }, [activePanel]);
+
+  useEffect(() => {
+    setUpcomingRenderCount(UPCOMING_QUEUE_INITIAL_RENDER);
+  }, [effectiveNowId, queue.length]);
+
+  const handleUpcomingQueueScroll = useCallback(
+    (e: React.UIEvent<HTMLUListElement>) => {
+      if (visibleUpcomingQueue.length >= upcomingQueue.length) return;
+      const node = e.currentTarget;
+      const remaining = node.scrollHeight - node.scrollTop - node.clientHeight;
+      if (remaining <= 180) {
+        setUpcomingRenderCount((n) =>
+          Math.min(n + UPCOMING_QUEUE_BATCH_RENDER, upcomingQueue.length)
+        );
+      }
+    },
+    [visibleUpcomingQueue.length, upcomingQueue.length]
+  );
+
+  useEffect(() => {
+    const missingVideoIds = Array.from(
+      new Set(
+        upcomingQueue
+          .map((item) => item.video_id)
+          .filter((id) => id && !videoPublishedAtById[id])
+      )
+    ).slice(0, 25);
+    if (missingVideoIds.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/youtube/videos-meta?ids=${encodeURIComponent(
+            missingVideoIds.join(",")
+          )}`
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          items?: Array<{ videoId?: string; publishedAt?: string }>;
+        };
+        if (cancelled) return;
+        const mapped = Object.fromEntries(
+          (data.items ?? [])
+            .filter(
+              (it): it is { videoId: string; publishedAt: string } =>
+                typeof it.videoId === "string" &&
+                it.videoId.length > 0 &&
+                typeof it.publishedAt === "string" &&
+                it.publishedAt.length > 0
+            )
+            .map((it) => [it.videoId, it.publishedAt])
+        );
+        if (Object.keys(mapped).length > 0) {
+          setVideoPublishedAtById((prev) => ({ ...prev, ...mapped }));
+        }
+      } catch {
+        /* keep queue usable even if metadata request fails */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [upcomingQueue, videoPublishedAtById]);
+
   const shellMainClass =
     "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
 
   /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below. */
   const shellMainScrollClass =
-    "vibin-page-bg relative flex w-full flex-col pb-[max(1.25rem,env(safe-area-inset-bottom))]";
+    "vibin-page-bg relative flex h-[100dvh] w-full flex-col overflow-hidden";
 
   if (configError) {
     return (
@@ -1424,19 +1596,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     );
   }
 
-  const playbackBusy = controlsBusy || queueJumpBusy;
-
-  const queuePlayback = {
-    isPaused: playbackPaused,
-    busy: playbackBusy,
-    canPrevious: canPrev,
-    hasNowPlaying,
-    onPrevious: () => void goPrevious(),
-    onPlay: () => void setPaused(false),
-    onPause: () => void setPaused(true),
-    onNext: () => void goNext(),
-    onSeekDelta: (d: number) => void seekBy(d),
-  };
+  const playbackBusy = queueJumpBusy;
   const peopleWatchingCount = Math.max(1, guestCount + 1);
   const visiblePresenceDots = Math.min(peopleWatchingCount, 6);
   const playbackControlLabel = "Everyone can control playback";
@@ -1447,22 +1607,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     readyCheck != null && readyCheck.initiatorId === localParticipantId;
   const hasTappedReady =
     readyCheck != null && readyCheck.readyUserIds.includes(localParticipantId);
-  const showMobileStickyControls = isCompactMobile && hasNowPlaying;
-  const queuePlaybackForList =
-    showMobileStickyControls ? undefined : hasNowPlaying ? queuePlayback : undefined;
-  const reactionsDockClass = showMobileStickyControls
-    ? "border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 fixed bottom-[max(11.6rem,calc(env(safe-area-inset-bottom)+10.3rem))] left-1/2 z-[59] inline-flex -translate-x-1/2 items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/15 backdrop-blur sm:bottom-4 sm:right-3 sm:left-auto sm:translate-x-0"
-    : "border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 fixed bottom-[max(6.25rem,calc(env(safe-area-inset-bottom)+5.1rem))] right-3 z-[59] inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/15 backdrop-blur sm:bottom-4";
-
-  const showGoToNowPlayingFab =
-    hasNowPlaying &&
-    queue.length > 0 &&
-    (!queueSectionInView ||
-      (queueSectionOpen && !nowPlayingVisibleInQueueScroll));
-
   return (
-    <main className={shellMainScrollClass}>
-      <header className="border-border/50 bg-background/90 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 w-full border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
+    <main
+      className={shellMainScrollClass}
+      style={{
+        backgroundColor: ambientTheme.base,
+        transition: "background-color 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+      }}
+    >
+      <header className="border-border/50 bg-background/90 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 w-full shrink-0 border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4 xl:max-w-3xl">
           <div className="flex min-w-0 flex-1 items-center pr-2">
             {isHost ? (
@@ -1497,16 +1650,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             )}
           </div>
           <div className={headerToolbarClass}>
-            {ready ? (
-              <button
-                type="button"
-                onClick={() => setGuestListOpen(true)}
-                className="text-muted-foreground border-border/60 hover:bg-muted/50 focus-visible:ring-ring max-w-[4.75rem] shrink-0 truncate border-r px-1.5 text-center text-[0.6rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:max-w-none sm:px-3 sm:text-xs"
-                title={`${guestCount} guest${guestCount === 1 ? "" : "s"} — tap to see who is here`}
-              >
-                {guestCount}&nbsp;{guestCount === 1 ? "guest" : "guests"}
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={openGuestInvite}
@@ -1521,10 +1664,51 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             </button>
             <button
               type="button"
+              onClick={() => setSettingsOpen(true)}
+              className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
+              title="Profile settings"
+              aria-label="Open profile settings"
+            >
+              {profilePhotoDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={profilePhotoDataUrl}
+                  alt="Your profile"
+                  className="size-6 rounded-full object-cover sm:size-7"
+                />
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="size-4.5"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.88l.03.03a2 2 0 0 1-2.83 2.83l-.03-.03a1.7 1.7 0 0 0-1.88-.33 1.7 1.7 0 0 0-1.02 1.56V21a2 2 0 0 1-4 0v-.04a1.7 1.7 0 0 0-1.02-1.56 1.7 1.7 0 0 0-1.88.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.02H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.33-1.88l-.03-.03a2 2 0 0 1 2.83-2.83l.03.03a1.7 1.7 0 0 0 1.88.33H9a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.04a1.7 1.7 0 0 0 1.02 1.56 1.7 1.7 0 0 0 1.88-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.88V9c0 .68.4 1.3 1.02 1.56H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={leaveToHome}
               className={headerToolbarBtnClass}
+              aria-label="Exit room"
+              title="Exit room"
             >
-              Home
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="size-4.5"
+                aria-hidden
+              >
+                <path d="M9 6H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4" />
+                <path d="M16 17l5-5-5-5" />
+                <path d="M21 12H9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -1557,356 +1741,325 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           ))}
         </div>
       ) : null}
-      <div className={reactionsDockClass}>
-        {["🔥", "👏", "😂", "❤️"].map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            onClick={() => void sendReaction(emoji)}
-            className="hover:bg-muted focus-visible:ring-ring inline-flex min-h-10 min-w-10 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            aria-label={`Send ${emoji} reaction`}
-            title={`Send ${emoji}`}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
+      <section
+        ref={videoSectionRef}
+        className="relative flex min-h-0 flex-1 w-full flex-col overflow-hidden px-4 pb-[max(6rem,calc(env(safe-area-inset-bottom)+4.8rem))] pt-3 sm:px-6"
+        style={{
+          backgroundImage: `radial-gradient(110% 75% at 50% 12%, ${ambientTheme.glow}, rgba(0,0,0,0) 55%)`,
+          transition: "background-image 700ms cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
+        <div className="mx-auto inline-flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-card/70 px-3 py-1.5 shadow-sm">
+          <div className="flex items-center">
+            {Array.from({ length: visiblePresenceDots }, (_, idx) => (
+              <span
+                key={idx}
+                className={`ring-background inline-block size-2.5 rounded-full ring-2 ${idx % 3 === 0 ? "bg-emerald-400" : idx % 3 === 1 ? "bg-sky-400" : "bg-violet-400"} ${idx > 0 ? "-ml-1.5" : ""}`}
+                aria-hidden
+              />
+            ))}
+          </div>
+          <p className="text-foreground text-xs font-semibold tracking-tight sm:text-sm">
+            {peopleWatchingCount} {peopleWatchingCount === 1 ? "person" : "people"} watching
+          </p>
+          <span className="text-primary">•</span>
+          <p className="text-primary text-xs font-semibold tracking-tight sm:text-sm">
+            {playbackControlLabel}
+          </p>
+        </div>
+        <div className="mx-auto mt-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs">
+          <span className="text-foreground">You:</span>
+          <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
+            {localDisplayLabel}
+          </span>
+        </div>
 
-      <div className="mx-auto w-full min-w-0 max-w-lg px-[clamp(1rem,4vw,1.5rem)] pb-[max(5.4rem,calc(env(safe-area-inset-bottom)+4.9rem))] sm:pb-0 lg:max-w-5xl">
-        <div className="mx-auto flex w-full min-w-0 max-w-2xl flex-col gap-3 xl:max-w-3xl">
-          <section
-            className="border-border/70 bg-card/60 inline-flex w-fit max-w-full items-center gap-2 self-start rounded-full border px-3 py-1.5"
-            aria-label={`${peopleWatchingCount} people watching`}
-          >
-            <div className="flex items-center">
-              {Array.from({ length: visiblePresenceDots }, (_, idx) => (
-                <span
-                  key={idx}
-                  className={`ring-background inline-block size-2.5 rounded-full ring-2 ${idx % 3 === 0 ? "bg-emerald-400" : idx % 3 === 1 ? "bg-sky-400" : "bg-violet-400"} ${idx > 0 ? "-ml-1.5" : ""}`}
-                  aria-hidden
-                />
-              ))}
-            </div>
-            <p className="text-foreground text-xs font-semibold sm:text-sm">
-              {peopleWatchingCount} {peopleWatchingCount === 1 ? "person" : "people"} watching
-            </p>
-          </section>
-          <section
-            className="border-primary/30 bg-primary/10 text-primary inline-flex w-fit max-w-full items-center gap-2 self-start rounded-full border px-3 py-1.5"
-            aria-label={playbackControlLabel}
-          >
-            <span aria-hidden className="inline-block size-2 rounded-full bg-primary" />
-            <p className="text-xs font-semibold sm:text-sm">{playbackControlLabel}</p>
-          </section>
-
-          <section aria-labelledby="search-heading" className="flex flex-col gap-1">
-            <h2 id="search-heading" className="sr-only">
-              Search YouTube
-            </h2>
-            <SearchYouTube
-              onAdd={handleAdd}
-              queuedVideoIds={queuedVideoIds}
-            />
-          </section>
-
-          {isHost ? (
-            <section className="flex flex-col gap-2" aria-label="Playback">
+        <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+          {isHost || guestShowSyncedVideo ? (
+            <>
+              <div ref={videoFrameRef}>
               <YouTubeSyncPlayer
                 ref={syncPlayerRef}
                 videoId={nowPlaying?.video_id ?? null}
                 remotePaused={playbackPaused}
                 anchorSec={playbackAnchorSec}
                 anchorAtIso={playbackAnchorAt}
-                isHost
+                isHost={isHost}
                 onHostVideoEnded={advanceToNextTrack}
                 onPlaybackScrub={reportIframeSeek}
                 onIframePausePlay={reportIframePausePlay}
                 onAutoResync={handleAutoResyncNotice}
                 forceResyncToken={forceResyncToken}
               />
-              <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
-                Playback runs on this device. Everyone sees the same video in sync;
-                keep this tab open for the party.
-              </p>
-            </section>
-          ) : hasNowPlaying ? (
-            <section
-              className="flex flex-col gap-2"
-              aria-labelledby="guest-playback-heading"
+              </div>
+              {activePanel === "now" ? (
+                <div className="-mt-13 mr-3 z-20 self-end">
+                  <div className="relative flex items-end justify-end">
+                    {reactionPickerOpen ? (
+                      <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
+                      {["🔥", "👏", "😂", "❤️", "🎉", "🤯"].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setDefaultReaction(emoji);
+                            setReactionPickerOpen(false);
+                          }}
+                          className={`hover:bg-muted focus-visible:ring-ring inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${defaultReaction === emoji ? "bg-primary/15" : ""}`}
+                          aria-label={`Set default reaction ${emoji}`}
+                          title={`Set ${emoji} as default`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      onPointerDown={beginReactionPress}
+                      onPointerUp={endReactionPress}
+                      onPointerCancel={cancelReactionPress}
+                      onPointerLeave={cancelReactionPress}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setReactionPickerOpen(true);
+                      }}
+                      className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors"
+                      aria-label={`Send default reaction ${defaultReaction}. Long press to change.`}
+                      title="Tap to react · long-press to change default"
+                    >
+                      {defaultReaction}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setGuestVideoPref(true)}
+              className="border-border bg-card/60 inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-semibold"
             >
-              <h2 id="guest-playback-heading" className="sr-only">
-                {guestShowSyncedVideo
-                  ? "Synced video on this device"
-                  : "Now playing"}
-              </h2>
-              {guestShowSyncedVideo ? (
-                <>
-                  <YouTubeSyncPlayer
-                    videoId={nowPlaying.video_id}
-                    remotePaused={playbackPaused}
-                    anchorSec={playbackAnchorSec}
-                    anchorAtIso={playbackAnchorAt}
-                    isHost={false}
-                    onHostVideoEnded={() => { }}
-                    onPlaybackScrub={reportIframeSeek}
-                    onIframePausePlay={reportIframePausePlay}
-                    onAutoResync={handleAutoResyncNotice}
-                    forceResyncToken={forceResyncToken}
+              Show synced video
+            </button>
+          )}
+          {activePanel === "now" ? (
+            <>
+              <div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-2xl border border-border/70 bg-card/65 px-3 py-2.5 shadow-sm">
+                {nowPlaying?.thumb_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={nowPlaying.thumb_url}
+                    alt={nowPlaying.title}
+                    width={72}
+                    height={72}
+                    className="h-14 w-14 shrink-0 rounded-xl object-cover shadow-md shadow-black/30 sm:h-16 sm:w-16"
                   />
-                  <p className="text-muted-foreground px-1 text-center text-[0.7rem] leading-snug sm:text-xs">
-                    Same video as the host, kept in sync. Prefer the host’s
-                    speaker for audio; preview is muted by default.
+                ) : (
+                  <div className="bg-card h-14 w-14 shrink-0 rounded-xl border border-border/70 sm:h-16 sm:w-16" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-display line-clamp-2 text-left text-[1.1rem] font-bold leading-tight sm:text-[1.35rem]">
+                    {nowPlaying?.title ?? "Nothing playing"}
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setGuestVideoPref(false)}
-                    className="text-muted-foreground hover:text-foreground focus-visible:ring-ring mx-auto min-h-10 rounded-lg px-3 py-2 text-center text-xs font-semibold underline underline-offset-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-sm"
-                  >
-                    Hide video on this device
-                  </button>
-                </>
+                  <div className="mt-2 grid max-w-sm grid-cols-2 gap-2.5">
+                    <button type="button" onClick={() => void goPrevious()} disabled={!canPrev || playbackBusy} className="border-border bg-card/80 hover:bg-card min-h-10 rounded-xl border text-sm font-bold transition-colors disabled:opacity-45">Prev</button>
+                    <button type="button" onClick={() => void goNext()} disabled={playbackBusy || !hasNowPlaying} className="bg-primary text-primary-foreground hover:brightness-105 min-h-10 rounded-xl text-sm font-bold transition-[filter] disabled:opacity-45">Next</button>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : null}
+          {activePanel === "now" ? (
+            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-foreground text-sm font-semibold">Next in queue</p>
+                {upcomingQueue.length > 0 ? (
+                  <p className="text-muted-foreground text-xs">
+                    {upcomingQueue.length} upcoming
+                  </p>
+                ) : null}
+              </div>
+              {upcomingQueue.length > 0 ? (
+                <ul
+                  className="mt-2 flex h-[calc(100%-1.75rem)] min-h-0 flex-col gap-2 overflow-y-auto pr-1"
+                  onScroll={handleUpcomingQueueScroll}
+                >
+                  {visibleUpcomingQueue.map((item, idx) => (
+                    <li
+                      key={item.id}
+                      className="border-border/70 bg-background/55 rounded-xl border"
+                    >
+                      <div className="flex items-start gap-2.5 px-2.5 py-2">
+                        <button
+                          type="button"
+                          onClick={() => void handlePlayQueueItem(item.id)}
+                          className="hover:bg-muted/55 focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0.5 py-0.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
+                          <span className="text-muted-foreground w-5 shrink-0 text-center text-xs font-semibold">
+                            {idx + 1}
+                          </span>
+                          {item.thumb_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={item.thumb_url}
+                              alt={item.title}
+                              width={48}
+                              height={48}
+                              className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                            />
+                          ) : (
+                            <div className="bg-muted h-10 w-10 shrink-0 rounded-lg" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-foreground line-clamp-2 text-sm font-medium">
+                              {item.title}
+                            </p>
+                            <p className="text-muted-foreground mt-0.5 text-[11px]">
+                              {`Uploaded ${formatIsoDate(videoPublishedAtById[item.video_id]) || "Unknown"} • Added by ${item.added_by?.trim() || "Anonymous"}`}
+                            </p>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void removeQueueItem(item)}
+                          className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                          title="Remove from queue"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                  {visibleUpcomingQueue.length < upcomingQueue.length ? (
+                    <li className="text-muted-foreground py-1 text-center text-xs">
+                      Loading more queue items...
+                    </li>
+                  ) : null}
+                </ul>
               ) : (
-                <div className="border-border bg-card/70 flex flex-col gap-2.5 rounded-2xl border px-4 py-3.5">
-                  <p className="text-foreground text-sm font-semibold">
-                    Now playing
-                  </p>
-                  <p className="text-foreground line-clamp-2 text-base font-medium leading-snug">
-                    {nowPlaying.title}
-                  </p>
-                  <p className="text-muted-foreground text-xs leading-relaxed">
-                    Watching here is optional. Use the queue controls below to
-                    skip or seek for everyone, or turn on video if you want the
-                    synced picture on this phone (uses more data and battery).
+                <div className="border-border/70 bg-background/40 mt-2 rounded-xl border px-3 py-3">
+                  <p className="text-foreground text-sm font-medium">
+                    No more videos in queue.
                   </p>
                   <button
                     type="button"
-                    onClick={() => setGuestVideoPref(true)}
-                    className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 mt-1 inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    onClick={() => setActivePanel("search")}
+                    className="text-primary hover:text-primary/90 mt-1.5 text-sm font-semibold underline underline-offset-4"
                   >
-                    Show synced video on this device
+                    Search and add more videos
                   </button>
                 </div>
               )}
             </section>
           ) : null}
-
           <section
-            ref={queueSectionRef}
-            className="border-border min-w-0 border-t pt-3"
-            aria-labelledby="queue-section-title"
+            className={`w-full max-w-2xl min-h-0 flex-1 ${
+              activePanel === "search" ? "" : "hidden"
+            }`}
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
-              <button
-                type="button"
-                id="queue-section-title"
-                className={collapsibleTriggerClass}
-                aria-expanded={queueSectionOpen}
-                aria-controls="queue-panel"
-                onClick={() => setQueueSectionOpen((o) => !o)}
-              >
-                <CollapseChevron open={queueSectionOpen} />
-                <span className="font-display text-base font-bold sm:text-lg">
-                  Queue
-                </span>
-              </button>
-              {isHost && queueSectionOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setClearConfirmOpen(true)}
-                  disabled={
-                    queue.length === 0 ||
-                    clearQueueBusy ||
-                    queueJumpBusy ||
-                    clearConfirmOpen
-                  }
-                  className="border-destructive/45 text-destructive hover:bg-destructive/10 focus-visible:ring-destructive inline-flex min-h-8 shrink-0 items-center justify-center rounded-md border px-2 py-1 text-[0.65rem] font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-40 sm:text-xs"
-                >
-                  Clear queue
-                </button>
-              ) : null}
-            </div>
-            {!queueSectionOpen && nowPlaying ? (
-              <div
-                className="vibin-collapsible-strip-in mt-3"
-                role="region"
-                aria-label="Now playing"
-              >
-                <NowPlayingQueueRow
-                  item={nowPlaying}
-                  playback={queuePlaybackForList}
-                />
-              </div>
+            {hasOpenedSearch ? (
+              <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
             ) : null}
-            <CollapsiblePanel
-              id="queue-panel"
-              open={queueSectionOpen}
-              labelledBy="queue-section-title"
-              marginClassWhenOpen="mt-3"
-              innerClassName="flex flex-col gap-3"
-            >
-              <QueueList
-                ref={queueListRef}
-                listPanelOpen={queueSectionOpen}
-                items={queue}
-                onRemove={handleRemove}
-                nowPlayingId={nowPlayingId}
-                onPlayItem={(id) => void handlePlayQueueItem(id)}
-                playBusy={queueJumpBusy}
-                playback={queuePlaybackForList}
-                onNowPlayingVisibleInQueueChange={
-                  onNowPlayingVisibleInQueueChange
-                }
-              />
-            </CollapsiblePanel>
           </section>
-
-          <section
-            className="border-border min-w-0 border-t pt-3"
-            aria-labelledby="yt-pl-section-title"
-          >
-            <button
-              type="button"
-              id="yt-pl-section-title"
-              className={collapsibleTriggerClass}
-              aria-expanded={playlistSectionOpen}
-              aria-controls="yt-pl-panel"
-              onClick={() => setPlaylistSectionOpen((o) => !o)}
-            >
-              <CollapseChevron open={playlistSectionOpen} />
-              <span className="font-display text-base font-bold sm:text-lg">
-                YouTube playlists
-              </span>
-            </button>
-            <CollapsiblePanel
-              id="yt-pl-panel"
-              open={playlistSectionOpen}
-              labelledBy="yt-pl-section-title"
-              marginClassWhenOpen="mt-[2px]"
-              innerClassName="flex flex-col gap-2.5"
-            >
-              <p className="text-muted-foreground max-w-prose break-words text-[0.7rem] leading-snug sm:text-xs">
-                Connect your Google account to list your playlists. Add tracks,
-                add an entire playlist, or replace the queue.
-              </p>
-              <Suspense
-                fallback={
-                  <p className="text-muted-foreground text-xs">
-                    Loading playlists…
-                  </p>
-                }
-              >
-                <HostYoutubePlaylists
-                  roomId={roomId}
-                  queueAttributionLabel={getQueueAttributionLabel()}
-                  onQueueActivity={(msg) => void notifyRoomActivity(msg)}
-                  omitSectionChrome
-                  queuedVideoIds={queuedVideoIds}
-                  onImported={() => {
-                    void loadQueue();
-                    void refreshPlaybackState();
-                  }}
-                />
-              </Suspense>
-            </CollapsiblePanel>
-          </section>
-
           {isHost ? (
-            <ConfirmDialog
-              open={clearConfirmOpen}
-              onOpenChange={setClearConfirmOpen}
-              title="Clear queue?"
-              description="Remove every track from the queue. This cannot be undone."
-              confirmLabel="Clear queue"
-              onConfirm={runClearQueue}
-              busy={clearQueueBusy}
-              destructive
-            />
+            <section
+              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 ${
+                activePanel === "playlists" ? "" : "hidden"
+              }`}
+            >
+              {hasOpenedPlaylists ? (
+                <Suspense
+                  fallback={
+                    <div className="flex h-full min-h-0 items-center justify-center">
+                      <p className="text-muted-foreground text-sm">
+                        Loading playlists…
+                      </p>
+                    </div>
+                  }
+                >
+                  <HostYoutubePlaylists
+                    key={playlistsRefreshToken}
+                    roomId={roomId}
+                    queueAttributionLabel={localDisplayLabel}
+                    onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                    omitSectionChrome
+                    queuedVideoIds={queuedVideoIds}
+                    onRequestRefresh={() => setPlaylistsRefreshToken((n) => n + 1)}
+                    onImported={() => {
+                      void loadQueue();
+                      void refreshPlaybackState();
+                    }}
+                  />
+                </Suspense>
+              ) : null}
+            </section>
+          ) : activePanel === "playlists" ? (
+            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3">
+              <div className="flex h-full min-h-0 items-center justify-center">
+                <p className="text-muted-foreground text-sm">
+                  Only hosts can manage playlists.
+                </p>
+              </div>
+            </section>
           ) : null}
-          <GuestInviteDialog
-            open={inviteOpen}
-            onOpenChange={setInviteOpen}
-            url={guestInviteUrl}
-          />
-          <GuestListDialog
-            open={guestListOpen}
-            onOpenChange={setGuestListOpen}
-            guests={guestRoster}
-            currentUserId={sessionUserId}
-            onRefresh={() => void loadRoomPresence()}
-          />
+        </div>
+      </section>
+
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2.5">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border/75 bg-background/92 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
+          {([
+            { key: "now", label: "Now Playing", icon: "now" },
+            { key: "search", label: "Search", icon: "search" },
+            { key: "playlists", label: "Playlists", icon: "playlists" },
+          ] as const).map((tab) => {
+            const active = activePanel === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActivePanel(tab.key)}
+                className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-3 transition-all duration-200 ${active ? "bg-primary text-primary-foreground font-semibold shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
+                aria-label={tab.label}
+                title={tab.label}
+              >
+                <TabIcon name={tab.icon} active={active} />
+                <span className="text-xs tracking-tight">{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {showMobileStickyControls ? (
-        <div className="border-border/80 bg-background/95 supports-[backdrop-filter]:bg-background/90 fixed inset-x-0 bottom-0 z-50 border-t px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-8px_26px_rgba(0,0,0,0.12)] backdrop-blur-md sm:hidden">
-          <div className="mx-auto grid w-full max-w-lg grid-cols-5 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void goPrevious()}
-              disabled={!canPrev || playbackBusy}
-              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-              aria-label="Previous track"
-            >
-              Prev
-            </button>
-            <button
-              type="button"
-              onClick={() => void seekBy(-10)}
-              disabled={playbackBusy || !hasNowPlaying}
-              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-              aria-label="Back 10 seconds"
-            >
-              -10s
-            </button>
-            <button
-              type="button"
-              onClick={() => void setPaused(!playbackPaused)}
-              disabled={playbackBusy || !hasNowPlaying}
-              className="bg-primary text-primary-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl px-3 text-sm font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-              aria-label={playbackPaused ? "Play" : "Pause"}
-            >
-              {playbackPaused ? "Play" : "Pause"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void seekBy(10)}
-              disabled={playbackBusy || !hasNowPlaying}
-              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-              aria-label="Forward 10 seconds"
-            >
-              +10s
-            </button>
-            <button
-              type="button"
-              onClick={() => void goNext()}
-              disabled={playbackBusy || !hasNowPlaying}
-              className="border-border bg-card text-foreground focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl border px-2.5 text-xs font-bold focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-              aria-label="Next track"
-            >
-              Next
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleGoToNowPlaying}
-            disabled={queueJumpBusy}
-            className="text-muted-foreground focus-visible:ring-ring mt-2 inline-flex min-h-9 w-full items-center justify-center rounded-lg text-xs font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-45"
-          >
-            {shortTrackTitle(nowPlaying?.title ?? "Now playing", 34)}
-          </button>
-        </div>
+      {isHost ? (
+        <ConfirmDialog
+          open={clearConfirmOpen}
+          onOpenChange={setClearConfirmOpen}
+          title="Clear queue?"
+          description="Remove every track from the queue. This cannot be undone."
+          confirmLabel="Clear queue"
+          onConfirm={runClearQueue}
+          busy={clearQueueBusy}
+          destructive
+        />
       ) : null}
-
-      {showGoToNowPlayingFab && !showMobileStickyControls ? (
-        <button
-          type="button"
-          onClick={handleGoToNowPlaying}
-          disabled={queueJumpBusy}
-          className="border-primary/35 bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring fixed bottom-[max(0.85rem,env(safe-area-inset-bottom))] left-1/2 z-40 inline-flex min-h-10 -translate-x-1/2 items-center justify-center rounded-full border px-4 py-2 text-xs font-bold shadow-lg shadow-black/20 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-45 sm:bottom-[max(1.1rem,env(safe-area-inset-bottom))] sm:px-5 sm:text-sm"
-        >
-          Go to now playing
-        </button>
-      ) : null}
+      <GuestInviteDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        url={guestInviteUrl}
+      />
+      <GuestListDialog
+        open={guestListOpen}
+        onOpenChange={setGuestListOpen}
+        guests={guestRoster}
+        currentUserId={sessionUserId}
+        onRefresh={() => void loadRoomPresence()}
+      />
+      <RoomProfileSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        onSaved={handleProfileSaved}
+      />
       {readyCheck ? (
         <div className="border-primary/35 bg-card/95 fixed bottom-[max(0.85rem,calc(env(safe-area-inset-bottom)+0.5rem))] left-1/2 z-[65] w-[min(100vw-1rem,28rem)] -translate-x-1/2 rounded-2xl border px-3 py-3 shadow-xl shadow-black/20 backdrop-blur-md sm:bottom-4 sm:px-4">
           <p className="text-foreground text-sm font-semibold">

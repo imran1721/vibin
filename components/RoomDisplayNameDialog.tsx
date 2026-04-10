@@ -1,18 +1,13 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import {
-  saveDisplayProfileAnonymous,
-  saveDisplayProfileNamed,
-} from "@/lib/displayName";
+import { createQuirkyAlias, saveDisplayProfileNamed } from "@/lib/displayName";
 
 /** Shared: same min-height + fill grid row so both buttons match when one line-wraps. */
 const btnBase =
   "inline-flex w-full min-h-[3.25rem] items-center justify-center rounded-xl px-3 py-2.5 text-center text-sm leading-snug transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-[3.5rem] sm:px-4 h-full";
 
-const btnSecondary = `${btnBase} border-border text-foreground hover:bg-muted focus-visible:ring-ring border font-semibold order-2 sm:order-1`;
-
-const btnPrimary = `${btnBase} bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring font-bold transition-[filter] order-1 sm:order-2 disabled:opacity-45`;
+const btnPrimary = `${btnBase} bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring font-bold transition-[filter] disabled:opacity-45`;
 
 type Props = {
   open: boolean;
@@ -38,19 +33,9 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
     }
   }, [open]);
 
-  const finishAnonymous = () => {
-    saveDisplayProfileAnonymous();
-    setName("");
-    onComplete();
-  };
-
   const finishNamed = () => {
     const t = name.trim();
-    if (t.length === 0) {
-      finishAnonymous();
-      return;
-    }
-    saveDisplayProfileNamed(t);
+    saveDisplayProfileNamed(t.length > 0 ? t : createQuirkyAlias());
     setName("");
     onComplete();
   };
@@ -71,7 +56,7 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
       onKeyDown={onKeyDown}
       onCancel={(e) => {
         e.preventDefault();
-        finishAnonymous();
+        finishNamed();
       }}
     >
       <div
@@ -89,8 +74,8 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
             id={descId}
             className="text-muted-foreground mt-2 text-sm leading-relaxed"
           >
-            Add a name so others see who queued a song or changed the track. Or
-            stay anonymous—one tap.
+            Add a name so others can recognize you. Leave it blank and we will
+            pick a quirky anonymous alias for you.
           </p>
         </div>
 
@@ -111,20 +96,13 @@ export function RoomDisplayNameDialog({ open, isHost, onComplete }: Props) {
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:items-stretch">
+        <div className="grid grid-cols-1 gap-2">
           <button
             type="button"
             className={btnPrimary}
             onClick={() => finishNamed()}
           >
-            {name.trim() ? "Use this name" : "Continue"}
-          </button>
-          <button
-            type="button"
-            className={btnSecondary}
-            onClick={() => finishAnonymous()}
-          >
-            Stay anonymous
+            Continue
           </button>
         </div>
       </div>
