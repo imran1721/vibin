@@ -66,7 +66,7 @@ const headerToolbarClass =
 const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
-function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlists"; active: boolean }) {
+function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlists" | "chat"; active: boolean }) {
   const cls = active ? "size-[1.05rem]" : "size-[1.2rem] text-muted-foreground";
   if (name === "now") {
     return (
@@ -90,6 +90,13 @@ function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlis
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
         <circle cx="11" cy="11" r="7" />
         <path d="m20 20-3.5-3.5" />
+      </svg>
+    );
+  }
+  if (name === "chat") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
+        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
       </svg>
     );
   }
@@ -121,6 +128,15 @@ type RoomReaction = {
   id: string;
   emoji: string;
   leftPct: number;
+};
+
+type RoomChatMessage = {
+  id: string;
+  senderUserId: string | null;
+  senderLabel: string;
+  text: string;
+  createdAt: string;
+  avatarDataUrl: string | null;
 };
 
 type ReadyCheckState = {
@@ -250,7 +266,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [profileGateDone, setProfileGateDone] = useState(false);
   const [forceResyncToken, setForceResyncToken] = useState(0);
   const [readyCheck, setReadyCheck] = useState<ReadyCheckState | null>(null);
-  const [activePanel, setActivePanel] = useState<"now" | "search" | "playlists">("now");
+  const [activePanel, setActivePanel] = useState<"now" | "search" | "playlists" | "chat">("now");
   const [hasOpenedSearch, setHasOpenedSearch] = useState(false);
   const [hasOpenedPlaylists, setHasOpenedPlaylists] = useState(false);
   const [playlistsRefreshToken, setPlaylistsRefreshToken] = useState(0);
@@ -260,6 +276,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [videoPublishedAtById, setVideoPublishedAtById] = useState<
     Record<string, string>
   >({});
+  const [chatMessages, setChatMessages] = useState<RoomChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [chatToastMessage, setChatToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
     null
@@ -282,6 +302,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const reactionPressTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
   const playbackReconcileTimerRef = useRef<number | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const activePanelRef = useRef<"now" | "search" | "playlists" | "chat">("now");
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -307,6 +329,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     guestListOpenRef.current = guestListOpen;
   }, [guestListOpen]);
+
+  useEffect(() => {
+    activePanelRef.current = activePanel;
+  }, [activePanel]);
 
   useEffect(() => {
     setProfilePhotoDataUrl(getDisplayAvatarDataUrl());
@@ -418,10 +444,41 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     []
   );
   const dismissSyncToast = useCallback(() => setSyncToastMessage(null), []);
+  const dismissChatToast = useCallback(() => setChatToastMessage(null), []);
 
   const handleAutoResyncNotice = useCallback(() => {
     setSyncToastMessage("Jumped to stay in sync");
   }, []);
+
+  const sendChatMessage = useCallback(async () => {
+    const text = chatInput.trim();
+    if (!text) return;
+    const senderLabel = localDisplayLabel.trim() || "Anonymous";
+    const senderUserId = currentUserIdRef.current ?? null;
+    const createdAt = new Date().toISOString();
+    const avatarDataUrl = profilePhotoDataUrl ?? null;
+    const localMsg: RoomChatMessage = {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      senderUserId,
+      senderLabel,
+      text,
+      createdAt,
+      avatarDataUrl,
+    };
+    setChatMessages((prev) => [...prev, localMsg]);
+    setChatInput("");
+    const ch = roomChannelRef.current;
+    if (!ch) return;
+    try {
+      await ch.send({
+        type: "broadcast",
+        event: "room_chat_message",
+        payload: { text, senderUserId, senderLabel, createdAt, avatarDataUrl },
+      });
+    } catch (e) {
+      console.error("supabase broadcast room_chat_message:", e);
+    }
+  }, [chatInput, localDisplayLabel, profilePhotoDataUrl]);
 
   const notifyRoomActivity = useCallback(async (message: string) => {
     if (!shouldBroadcastActivity()) return;
@@ -795,6 +852,49 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             return;
           }
           spawnReaction(p.emoji);
+        })
+        .on("broadcast", { event: "room_chat_message" }, (payload: unknown) => {
+          const p = (payload as { payload?: unknown } | null | undefined)
+            ?.payload as {
+              text?: unknown;
+              senderUserId?: unknown;
+              senderLabel?: unknown;
+              createdAt?: unknown;
+              avatarDataUrl?: unknown;
+            } | undefined;
+          if (typeof p?.text !== "string" || p.text.trim().length === 0) return;
+          const messageText = p.text.trim();
+          const senderUserId =
+            typeof p.senderUserId === "string" ? p.senderUserId : null;
+          if (senderUserId && senderUserId === currentUserIdRef.current) return;
+          const senderLabel =
+            typeof p.senderLabel === "string" && p.senderLabel.trim().length > 0
+              ? p.senderLabel.trim()
+              : "Anonymous";
+          const createdAt =
+            typeof p.createdAt === "string" && !Number.isNaN(Date.parse(p.createdAt))
+              ? p.createdAt
+              : new Date().toISOString();
+          const avatarDataUrl =
+            typeof p.avatarDataUrl === "string" &&
+            p.avatarDataUrl.startsWith("data:image/")
+              ? p.avatarDataUrl
+              : null;
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              senderUserId,
+              senderLabel,
+              text: messageText,
+              createdAt,
+              avatarDataUrl,
+            },
+          ]);
+          if (activePanelRef.current !== "chat") {
+            setUnreadChatCount((n) => n + 1);
+          }
+          setChatToastMessage(`${senderLabel}: ${messageText}`);
         })
         .on(
           "broadcast",
@@ -1469,6 +1569,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [activePanel]);
 
   useEffect(() => {
+    if (activePanel === "chat") {
+      setUnreadChatCount(0);
+      requestAnimationFrame(() => {
+        const el = chatScrollRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+      });
+    }
+  }, [activePanel, chatMessages.length]);
+
+  useEffect(() => {
     setUpcomingRenderCount(UPCOMING_QUEUE_INITIAL_RENDER);
   }, [effectiveNowId, queue.length]);
 
@@ -1728,6 +1839,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         onDismiss={dismissSyncToast}
         variant="stacked2"
       />
+      <RoomGuestJoinToast
+        message={chatToastMessage}
+        onDismiss={dismissChatToast}
+        variant="stacked3"
+      />
       {reactions.length > 0 ? (
         <div className="pointer-events-none fixed inset-0 z-[58] overflow-hidden" aria-hidden>
           {reactions.map((reaction) => (
@@ -1962,6 +2078,112 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
             ) : null}
           </section>
+          <section
+            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 ${
+              activePanel === "chat" ? "" : "hidden"
+            }`}
+          >
+            <div className="flex h-full min-h-0 flex-col">
+              <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                {chatMessages.length === 0 ? (
+                  <div className="flex h-full min-h-0 items-center justify-center">
+                    <p className="text-muted-foreground text-sm">
+                      Chat is quiet. Drop the first message.
+                    </p>
+                  </div>
+                ) : (
+                  chatMessages.map((msg) => {
+                    const mine =
+                      msg.senderUserId != null &&
+                      msg.senderUserId === currentUserIdRef.current;
+                    return (
+                      <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
+                        {!mine ? (
+                          <span className="border-border bg-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border">
+                            {msg.avatarDataUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={msg.avatarDataUrl}
+                                alt={msg.senderLabel}
+                                className="size-full object-cover"
+                              />
+                            ) : (
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                className="size-4 text-muted-foreground"
+                                aria-hidden
+                              >
+                                <circle cx="12" cy="8" r="3.5" />
+                                <path d="M5 19a7 7 0 0 1 14 0" />
+                              </svg>
+                            )}
+                          </span>
+                        ) : null}
+                        <div
+                          className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
+                        >
+                          <p className="text-[11px] font-semibold text-muted-foreground">
+                            {msg.senderLabel}
+                          </p>
+                          <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
+                        </div>
+                        {mine ? (
+                          <span className="border-border bg-background inline-flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full border">
+                            {msg.avatarDataUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={msg.avatarDataUrl}
+                                alt={msg.senderLabel}
+                                className="size-full object-cover"
+                              />
+                            ) : (
+                              <svg
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                className="size-4 text-muted-foreground"
+                                aria-hidden
+                              >
+                                <circle cx="12" cy="8" r="3.5" />
+                                <path d="M5 19a7 7 0 0 1 14 0" />
+                              </svg>
+                            )}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void sendChatMessage();
+                    }
+                  }}
+                  placeholder="Type a message..."
+                  maxLength={240}
+                  className="border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 flex-1 rounded-xl border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                />
+                <button
+                  type="button"
+                  onClick={() => void sendChatMessage()}
+                  disabled={chatInput.trim().length === 0}
+                  className="bg-primary text-primary-foreground hover:brightness-105 inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-[filter] disabled:opacity-45"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </section>
           {isHost ? (
             <section
               className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 ${
@@ -2011,6 +2233,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           {([
             { key: "now", label: "Now Playing", icon: "now" },
             { key: "search", label: "Search", icon: "search" },
+            { key: "chat", label: "Chat", icon: "chat" },
             { key: "playlists", label: "Playlists", icon: "playlists" },
           ] as const).map((tab) => {
             const active = activePanel === tab.key;
@@ -2023,7 +2246,14 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 aria-label={tab.label}
                 title={tab.label}
               >
-                <TabIcon name={tab.icon} active={active} />
+                <span className="relative inline-flex">
+                  <TabIcon name={tab.icon} active={active} />
+                  {tab.key === "chat" && unreadChatCount > 0 ? (
+                    <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
+                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    </span>
+                  ) : null}
+                </span>
                 <span className="text-xs tracking-tight">{tab.label}</span>
               </button>
             );

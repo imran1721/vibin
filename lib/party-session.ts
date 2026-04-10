@@ -101,12 +101,13 @@ export function shouldResetPartySessionForRoom(roomId: string): boolean {
 }
 
 /**
- * Clears room-specific markers without logging out.
- * Use this when navigating between rooms / back home but the user should keep their session
- * (e.g. to preserve connected YouTube credentials tied to the current Supabase user).
+ * Clears room-specific state without logging out.
+ * Use this when exiting a room to go home while preserving the current auth session
+ * (e.g. keep connected YouTube credentials tied to the Supabase user).
  */
 export function clearPartyRoomState(): void {
   clearStoredPartyRoomId();
+  clearStoredHostRoom();
 }
 
 /** Sign out, clear display name profile, guest-video pref, and party room marker. */
