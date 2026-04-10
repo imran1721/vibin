@@ -1,9 +1,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { AppBrandLockup } from "@/components/AppBrandLockup";
 import { LegalFooter } from "@/components/LegalFooter";
 
-const backClass =
-  "text-accent hover:brightness-110 focus-visible:ring-ring mb-8 inline-flex min-h-10 items-center text-sm font-semibold underline underline-offset-4 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+const brandHomeLinkClass =
+  "focus-visible:ring-ring hover:brightness-105 mb-8 inline-flex max-w-full rounded-xl outline-none transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 const h2Class =
   "font-display text-foreground mt-10 scroll-mt-20 text-xl font-bold first:mt-0 sm:text-2xl";
@@ -20,8 +21,8 @@ export function LegalDocLayout({ title, intro, children }: Props) {
   return (
     <main className="vibin-page-bg flex min-h-full flex-col px-[clamp(1rem,4vw,1.75rem)] pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <div className="mx-auto w-full max-w-prose flex-1">
-        <Link href="/" className={backClass}>
-          ← Back to Vibin
+        <Link href="/" aria-label="Back to vibin.click home" className={brandHomeLinkClass}>
+          <AppBrandLockup />
         </Link>
         <h1 className="font-display text-foreground text-3xl font-extrabold tracking-tight sm:text-4xl">
           {title}

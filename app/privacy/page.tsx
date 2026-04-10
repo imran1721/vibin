@@ -7,20 +7,20 @@ import {
 } from "@/components/LegalDocLayout";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Vibin",
+  title: "Privacy Policy — vibin.click",
   description:
-    "How Vibin handles information when you host or join YouTube listening parties.",
+    "How vibin.click handles information when you host or join YouTube listening parties.",
 };
 
 export default function PrivacyPage() {
   return (
     <LegalDocLayout
       title="Privacy Policy"
-      intro='This policy describes how Vibin ("we", "the service") handles information when you use the app. Last updated: April 2026. If you run your own copy of Vibin, the operator of that deployment is responsible for how data is processed.'
+      intro='This policy describes how vibin.click ("we", "the service") handles information when you use the app. Last updated: April 2026. If you run your own copy of vibin.click, the operator of that deployment is responsible for how data is processed.'
     >
-      <LegalSection title="What Vibin is">
+      <LegalSection title="About vibin.click">
         <LegalP>
-          Vibin is a web app for shared YouTube playback: a host runs playback in
+          vibin.click is a web app for shared YouTube playback: a host runs playback in
           a room while others can search, queue videos, and (when enabled) connect
           their YouTube account to add from playlists.
         </LegalP>
@@ -109,7 +109,7 @@ export default function PrivacyPage() {
 
       <LegalSection title="Contact">
         <LegalP>
-          For privacy questions about a specific deployment of Vibin, contact the
+          For privacy questions about a specific deployment of vibin.click, contact the
           person or organization operating that website.
         </LegalP>
       </LegalSection>

@@ -5,7 +5,7 @@ const linkClass =
 
 export function LegalFooter() {
   return (
-    <footer className="border-border flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-8 text-center">
+    <footer className="border-border/70 text-muted-foreground flex flex-wrap items-center justify-center gap-x-4 gap-y-2 border-t pt-6 text-center text-sm">
       <Link href="/privacy" className={linkClass}>
         Privacy Policy
       </Link>

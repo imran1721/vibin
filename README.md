@@ -1,7 +1,6 @@
-# Vibin
+# vibin.click
 
-
-Web app for a Spotify Jam–style YouTube listening party (Vibin): one host plays audio; everyone with the link can search YouTube, add tracks, and **skip to the next song** (updates the queue for everyone; the host’s tab loads the next video via realtime). Realtime updates use Supabase.
+Web app for a Spotify Jam–style YouTube listening party: one host plays audio; everyone with the link can search YouTube, add tracks, and **skip to the next song** (updates the queue for everyone; the host’s tab loads the next video via realtime). Realtime updates use Supabase.
 
 ## Setup
 

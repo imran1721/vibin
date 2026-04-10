@@ -84,7 +84,7 @@ export function JoinRoomQrDialog({ open, onOpenChange, onDecoded }: Props) {
           if (cancelled) return;
           const roomId = extractRoomIdFromScan(text);
           if (!roomId) {
-            setScanError("That code isn’t a Vibin room link.");
+            setScanError("That code isn’t a vibin.click room link.");
             return;
           }
           cancelled = true;

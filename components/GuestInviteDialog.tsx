@@ -62,7 +62,7 @@ export function GuestInviteDialog({ open, onOpenChange, url }: Props) {
     }
     try {
       await navigator.share({
-        title: "Join on Vibin",
+        title: "Join on vibin.click",
         text: "Join the listening party.",
         url,
       });

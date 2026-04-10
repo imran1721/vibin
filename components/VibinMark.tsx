@@ -6,7 +6,7 @@ type Props = Omit<ComponentProps<"svg">, "viewBox" | "children"> & {
 };
 
 /**
- * Inline logo mark (same motif as the app icon) for headers and wordmarks.
+ * Inline logo mark (same motif as the app icon) for vibin.click headers and wordmarks.
  */
 export function VibinMark({ className, title, ...rest }: Props) {
   const merged =

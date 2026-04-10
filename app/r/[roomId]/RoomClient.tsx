@@ -27,7 +27,7 @@ import {
 import { SearchYouTube } from "@/components/SearchYouTube";
 import { HostYoutubePlaylists } from "@/components/HostYoutubePlaylists";
 import { GuestInviteDialog } from "@/components/GuestInviteDialog";
-import { VibinMark } from "@/components/VibinMark";
+import { AppBrandLockup } from "@/components/AppBrandLockup";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { RoomGuestJoinToast } from "@/components/RoomGuestJoinToast";
@@ -55,10 +55,6 @@ type Props = {
 
 const linkClass =
   "text-accent focus-visible:ring-ring inline-flex min-h-11 items-center rounded-lg text-sm font-semibold underline underline-offset-4 transition-colors hover:brightness-110 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
-
-/** App wordmark next to logo in room header (tight line-height + slight optical shift vs square mark) */
-const headerBrandWordClass =
-  "text-accent font-display text-xl font-bold leading-none tracking-normal text-[35px] sm:mb-[-13px] mb-[-6px]";
 
 const headerToolbarClass =
   "border-border/70 bg-card/45 flex shrink-0 items-center gap-0.5 self-center rounded-2xl border p-0.5 shadow-sm backdrop-blur-sm";
@@ -1758,6 +1754,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   if (configError) {
     return (
       <main className={`${shellMainClass} gap-5`}>
+        <AppBrandLockup />
         <h1 className="font-display text-xl font-bold">Configuration</h1>
         <p className="text-muted-foreground text-sm leading-relaxed">
           {configError}
@@ -1778,6 +1775,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   if (bootError) {
     return (
       <main className={`${shellMainClass} gap-5`}>
+        <AppBrandLockup />
         <h1 className="font-display text-xl font-bold">Cannot open room</h1>
         <p className="text-muted-foreground text-sm leading-relaxed">
           {bootError}
@@ -1792,9 +1790,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   if (!ready) {
     return (
       <main
-        className={`${shellMainClass} min-h-[100dvh] items-center justify-center`}
+        className={`${shellMainScrollClass} items-center justify-center`}
       >
-        <JoinRoomLoader creating={justCreated} />
+        {/* Full-width shell like the ready room — `shellMainClass` max-w-lg looked like a centered “box” on wide viewports */}
+        {/* Room row exists before this screen; `justCreated` only strips ?new=1 — avoid a second "Creating" pass */}
+        <JoinRoomLoader creating={false} />
       </main>
     );
   }
@@ -1832,38 +1832,33 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         transition: "background-color 700ms cubic-bezier(0.22, 1, 0.36, 1)",
       }}
     >
-      <header className="border-border/50 bg-background/90 supports-[backdrop-filter]:bg-background/80 sticky top-0 z-40 w-full shrink-0 border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
+      <header className="border-border/50 sticky top-0 z-40 w-full shrink-0 border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4 xl:max-w-3xl">
           <div className="flex min-w-0 flex-1 items-center pr-2">
             {isHost ? (
               <>
-                <h1 className="sr-only">Vibin — you are the host</h1>
-                <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1.5 sm:gap-x-2.5">
-                  <div className="flex gap-1.5 items-center">
-                    <VibinMark className="size-10 sm:size-11" />
-                    <span className={`${headerBrandWordClass} shrink-0`}>
-                      Vibin
+                <h1 className="sr-only">vibin.click — you are the host</h1>
+                <AppBrandLockup
+                  className="min-w-0"
+                  titleRowSuffix={
+                    <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
+                      Host
                     </span>
-                  </div>
-                  <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem] mb-1">
-                    Host
-                  </span>
-                </div>
+                  }
+                />
               </>
             ) : (
-              <div className="space-y-1 sm:space-y-1.5">
-                <div className="flex min-w-0 flex-wrap items-end gap-x-2 gap-y-1 sm:gap-x-2.5">
-                  <div className="flex sm:gap-1.5 items-center">
-                    <VibinMark className="size-10 sm:size-11" />
-                    <span className={`${headerBrandWordClass} shrink-0`}>
-                      Vibin
+              <>
+                <h1 className="sr-only">vibin.click — you are a guest</h1>
+                <AppBrandLockup
+                  className="min-w-0"
+                  titleRowSuffix={
+                    <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
+                      Guest
                     </span>
-                  </div>
-                  <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
-                    Guest
-                  </span>
-                </div>
-              </div>
+                  }
+                />
+              </>
             )}
           </div>
           <div className={headerToolbarClass}>

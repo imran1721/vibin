@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
+import { HomeHeroMock } from "@/components/HomeHeroMock";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
 import { PwaInstallOption } from "@/components/PwaInstallOption";
-import { VibinMark } from "@/components/VibinMark";
+import { AppBrandLockup } from "@/components/AppBrandLockup";
 import { LegalFooter } from "@/components/LegalFooter";
 import {
   clearPartySession,
@@ -15,8 +16,22 @@ import {
   setStoredHostRoom,
 } from "@/lib/party-session";
 
-const scanQrBtnClass =
-  "border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+const demoRoomId =
+  typeof process.env.NEXT_PUBLIC_DEMO_ROOM_ID === "string"
+    ? process.env.NEXT_PUBLIC_DEMO_ROOM_ID.trim()
+    : "";
+
+const primaryBtn =
+  "bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-14 w-full items-center justify-center rounded-2xl px-6 text-base font-bold shadow-lg shadow-black/15 transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:shadow-black/45 enabled:active:scale-[0.99] motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-55";
+
+const secondaryBtn =
+  "border-border bg-card/70 text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border px-6 text-base font-bold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50";
+
+const ghostBtn =
+  "border-border text-foreground hover:bg-muted/60 focus-visible:ring-ring inline-flex min-h-12 w-full items-center justify-center rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-55";
+
+const subtleCard =
+  "border-border/60 bg-card/40 rounded-2xl border px-4 py-4 sm:px-5";
 
 export function VibinHome() {
   const router = useRouter();
@@ -72,6 +87,7 @@ export function VibinHome() {
         throw new Error("Unexpected response from server");
       }
       setStoredHostRoom(row.id, row.host_token);
+      setJoinNavigating(true);
       router.push(
         `/r/${row.id}?h=${encodeURIComponent(row.host_token)}&new=1`
       );
@@ -92,60 +108,207 @@ export function VibinHome() {
     router.push(`/r/${roomId}`);
   }
 
+  function tryDemoRoom() {
+    if (!demoRoomId) return;
+    setError(null);
+    setJoinNavigating(true);
+    router.push(`/r/${demoRoomId}`);
+  }
+
   return (
-    <div className="relative mx-auto flex w-full max-w-md flex-col gap-10 sm:max-w-lg">
+    <div className="relative mx-auto flex w-full max-w-md flex-col gap-5 sm:gap-6 sm:max-w-lg">
       {busy || joinNavigating ? (
         <div className="vibin-page-bg fixed inset-0 z-[80]">
           <JoinRoomLoader variant="overlay" creating={busy} />
         </div>
       ) : null}
-      <header className="space-y-3">
-        <p className="text-accent font-display text-sm font-semibold tracking-wide">
-          YouTube listening party
-        </p>
-        <h1 className="font-display text-foreground flex flex-wrap items-center gap-2 text-5xl font-extrabold leading-none tracking-tight sm:gap-3 sm:text-6xl">
-          <VibinMark className="size-[3.25rem] sm:size-16" />
-          <span className="-translate-y-1 sm:-translate-y-0.5">Vibin</span>
-        </h1>
-        <p className="text-muted-foreground max-w-prose text-base leading-relaxed sm:text-[1.05rem]">
-          Create a room and share a link or QR invite. You run playback on one
-          device; everyone else queues YouTube videos from their phones and stays
-          in sync.
-        </p>
-      </header>
 
-      <div className="flex flex-col gap-3">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void startRoom()}
-          className="bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-6 py-3.5 text-base font-bold shadow-lg shadow-black/20 transition-[filter,transform] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:shadow-black/50 enabled:active:scale-[0.99] motion-reduce:enabled:active:scale-100 disabled:cursor-not-allowed disabled:opacity-55"
+      {error ? (
+        <div
+          className="border-destructive/35 bg-destructive/10 rounded-2xl border px-4 py-3"
+          role="alert"
         >
-          {busy ? "Starting…" : "Start a room"}
-        </button>
+          <p className="text-destructive text-sm font-medium">{error}</p>
+        </div>
+      ) : null}
+
+      {/* Hero — value prop + CTAs first (conversion) */}
+      <section className="space-y-5">
+        <AppBrandLockup />
+
+        <div className="space-y-3">
+          <h1 className="font-display text-foreground text-[1.9rem] font-extrabold leading-[1.05] tracking-tight sm:text-4xl">
+            Watch YouTube together. Instantly.
+          </h1>
+          <p className="text-muted-foreground max-w-[22rem] text-[1.05rem] leading-snug sm:text-lg">
+            No login. No installs. Just share a link and start vibing. Chat and
+            react live with the video—no need to pause the party.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 pt-1">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void startRoom()}
+            className={primaryBtn}
+          >
+            {busy ? "Starting…" : "Start a Room"}
+          </button>
+          <button
+            type="button"
+            disabled={joinNavigating}
+            onClick={() => setScanOpen(true)}
+            className={secondaryBtn}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="text-muted-foreground size-5 shrink-0"
+              aria-hidden
+            >
+              <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+              <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+              <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+              <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+            </svg>
+            Join a Room
+          </button>
+          <p className="text-muted-foreground px-1 text-center text-xs leading-snug">
+            Join a room with your camera — or open a link someone sent you in
+            the browser.
+          </p>
+        </div>
+      </section>
+
+      <HomeHeroMock />
+
+      {/* How it works */}
+      <section aria-labelledby="how-heading" className="space-y-1">
+        <h2
+          id="how-heading"
+          className="text-xs font-bold uppercase tracking-wider text-muted-foreground"
+        >
+          How it works
+        </h2>
+        <ol className="grid grid-cols-3 gap-2 pt-2">
+          {[
+            { n: "1", title: "Create", desc: "Start a room" },
+            { n: "2", title: "Share", desc: "Send the link" },
+            { n: "3", title: "Watch", desc: "Stay in sync" },
+          ].map((step) => (
+            <li
+              key={step.n}
+              className="border-border/70 bg-card/50 flex flex-col items-center rounded-xl border px-1.5 py-3 text-center"
+            >
+              <span className="bg-primary/12 text-primary mb-1.5 flex size-7 items-center justify-center rounded-full text-xs font-bold">
+                {step.n}
+              </span>
+              <span className="text-foreground text-xs font-semibold">
+                {step.title}
+              </span>
+              <span className="text-muted-foreground mt-0.5 text-[0.65rem] leading-tight">
+                {step.desc}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* Highlights + demo + tagline — tight group to avoid a “hole” of whitespace */}
+      <div className="flex flex-col gap-2.5">
+        <section aria-label="Features" className="space-y-1.5">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            At a glance
+          </h2>
+          <ul className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-between">
+            {[
+              {
+                label: "Real-time sync",
+                sub: "One timeline for everyone",
+                icon: (
+                  <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                ),
+              },
+              {
+                label: "Built for phones",
+                sub: "Tap-friendly, works everywhere",
+                icon: (
+                  <path d="M12 18h.01M8 21h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2z" />
+                ),
+              },
+              {
+                label: "No login",
+                sub: "Jump in and press play",
+                icon: (
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                ),
+              },
+              {
+                label: "Chat & react",
+                sub: "Side chat and emoji reactions while you watch",
+                icon: (
+                  <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+                ),
+              },
+            ].map((item) => (
+              <li
+                key={item.label}
+                className="border-border/60 bg-card/35 flex min-w-0 flex-1 items-start gap-3 rounded-xl border px-3 py-2.5 sm:min-w-[30%] sm:flex-1"
+              >
+                <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    className="size-4.5"
+                    aria-hidden
+                  >
+                    {item.icon}
+                  </svg>
+                </span>
+                <div className="min-w-0 pt-0.5">
+                  <p className="text-foreground text-sm font-semibold leading-tight">
+                    {item.label}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-xs leading-snug">
+                    {item.sub}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        {demoRoomId ? (
+          <button
+            type="button"
+            disabled={joinNavigating}
+            onClick={() => tryDemoRoom()}
+            className="text-accent hover:brightness-110 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-lg text-sm font-bold underline underline-offset-4 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50"
+          >
+            Try demo room
+          </button>
+        ) : null}
+
+        <p className="text-muted-foreground -mt-0.5 text-center text-sm font-medium italic">
+          Made for vibing together
+        </p>
       </div>
 
-      <div className="border-border flex flex-col gap-3 border-t pt-8">
-        <p className="text-foreground text-sm font-semibold">Join a room</p>
-        <p className="text-muted-foreground -mt-1 text-sm leading-relaxed">
-          Scan the QR code from the host&apos;s invite.
-        </p>
-        <button
-          type="button"
-          disabled={joinNavigating}
-          onClick={() => setScanOpen(true)}
-          className={`${scanQrBtnClass} disabled:cursor-not-allowed disabled:opacity-50`}
-        >
-          Scan QR code
-        </button>
-      </div>
-
-      <div className="border-border flex flex-col gap-3 border-t pt-8">
+      <section aria-label="Install app" className="border-border/70 border-t pt-4">
         <PwaInstallOption />
-      </div>
+      </section>
 
       {hasSession ? (
-        <div className="border-border flex flex-col gap-3 border-t pt-8">
+        <div className={subtleCard}>
+          <p className="text-muted-foreground mb-3 text-xs leading-relaxed">
+            Logging out clears this device&apos;s session and saved YouTube
+            connection.
+          </p>
           <button
             type="button"
             disabled={busy || joinNavigating}
@@ -157,20 +320,18 @@ export function VibinHome() {
                   const supabase = getSupabaseBrowserClient();
                   await clearPartySession(supabase);
                 } catch (e) {
-                  setError(e instanceof Error ? e.message : "Could not log out");
+                  setError(
+                    e instanceof Error ? e.message : "Could not log out"
+                  );
                 } finally {
                   setBusy(false);
                 }
               })();
             }}
-            className="border-border text-foreground hover:bg-muted active:bg-muted/80 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-55"
+            className={ghostBtn}
           >
             {busy ? "Logging out…" : "Log out"}
           </button>
-          <p className="text-muted-foreground -mt-1 text-xs leading-relaxed">
-            Logging out will disconnect your saved YouTube connection on this device
-            (you can reconnect anytime).
-          </p>
         </div>
       ) : null}
 
@@ -181,15 +342,6 @@ export function VibinHome() {
         onOpenChange={setScanOpen}
         onDecoded={onQrDecoded}
       />
-
-      {error && (
-        <div
-          className="border-destructive/35 bg-destructive/10 rounded-2xl border px-4 py-3"
-          role="alert"
-        >
-          <p className="text-destructive text-sm font-medium">{error}</p>
-        </div>
-      )}
     </div>
   );
 }

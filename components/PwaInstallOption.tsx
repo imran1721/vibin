@@ -26,7 +26,7 @@ function isLikelyChromium(): boolean {
 }
 
 const cardClass =
-  "border-border bg-card/60 flex flex-col gap-3 rounded-2xl border px-4 py-3.5";
+  "border-border/70 bg-card/65 flex flex-col gap-3 rounded-2xl border px-4 py-4 shadow-sm sm:px-5 sm:py-5";
 
 const btnClass =
   "bg-primary text-primary-foreground focus-visible:ring-ring hover:brightness-105 active:brightness-95 inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2.5 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50";
@@ -65,7 +65,7 @@ export function PwaInstallOption() {
       const { outcome } = await deferred.userChoice;
       setInstallOutcome(
         outcome === "accepted"
-          ? "Installed — open Vibin from your home screen or app list."
+          ? "Installed — open vibin.click from your home screen or app list."
           : "Install dismissed — you can try again from the browser menu."
       );
       setDeferred(null);
@@ -81,7 +81,7 @@ export function PwaInstallOption() {
       <div className={cardClass}>
         <p className="text-foreground text-sm font-semibold">App</p>
         <p className="text-muted-foreground text-sm leading-relaxed">
-          You&apos;re using Vibin as an installed app. Full screen and quick
+          You&apos;re using vibin.click as an installed app. Full screen and quick
           launch from your home screen.
         </p>
       </div>
@@ -92,7 +92,7 @@ export function PwaInstallOption() {
     <div className={cardClass}>
       <p className="text-foreground text-sm font-semibold">Install as app</p>
       <p className="text-muted-foreground -mt-1 text-sm leading-relaxed">
-        Add Vibin to your home screen for a full-screen experience and faster
+        Add vibin.click to your home screen for a full-screen experience and faster
         access. Works best after the site has loaded once in production.
       </p>
 
@@ -103,7 +103,7 @@ export function PwaInstallOption() {
           disabled={installBusy}
           onClick={() => void runInstall()}
         >
-          {installBusy ? "Installing…" : "Install Vibin"}
+          {installBusy ? "Installing…" : "Install vibin.click"}
         </button>
       ) : null}
 
@@ -119,12 +119,12 @@ export function PwaInstallOption() {
           <li>
             Scroll and tap <strong className="text-foreground">Add to Home Screen</strong>.
           </li>
-          <li>Confirm — Vibin opens like a native app.</li>
+          <li>Confirm — vibin.click opens like a native app.</li>
         </ol>
       ) : !deferred ? (
         <p className="text-muted-foreground text-sm leading-relaxed">
           {chromium
-            ? "If you don’t see an Install button, open the browser menu (⋮) and choose Install app or Install Vibin when it appears."
+            ? "If you don’t see an Install button, open the browser menu (⋮) and choose Install app or add to home screen when it appears."
             : "Use your browser’s menu to install or add this site to your home screen."}
         </p>
       ) : null}

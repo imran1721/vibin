@@ -36,20 +36,6 @@ export function JoinRoomLoader({
     >
       <span className="sr-only">{srOnly}</span>
       <div className="flex flex-col items-center gap-7">
-        {/* <div className="relative grid size-[7.25rem] place-items-center">
-          <div
-            className="border-border vibin-join-ring-slow pointer-events-none absolute inset-0 rounded-full border-2 border-dashed opacity-40"
-            aria-hidden
-          />
-          <div
-            className="vibin-join-ring pointer-events-none absolute inset-[10px] rounded-full border-2 border-transparent border-t-primary border-r-primary/35"
-            aria-hidden
-          />
-          <div className="vibin-join-mark-wrap relative z-10 drop-shadow-sm">
-            <VibinMark className="size-[4.25rem] sm:size-[4.5rem]" />
-          </div>
-        </div> */}
-
         <div
           className="flex h-11 items-end justify-center gap-[5px]"
           aria-hidden

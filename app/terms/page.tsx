@@ -7,26 +7,26 @@ import {
 } from "@/components/LegalDocLayout";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Vibin",
-  description: "Terms for using the Vibin YouTube listening party app.",
+  title: "Terms of Service — vibin.click",
+  description: "Terms for using the vibin.click YouTube watch party app.",
 };
 
 export default function TermsPage() {
   return (
     <LegalDocLayout
       title="Terms of Service"
-      intro="By using Vibin, you agree to these terms. Last updated: April 2026. If you do not agree, do not use the service. Vibin is provided by the operator of the website you are visiting."
+      intro="By using vibin.click, you agree to these terms. Last updated: April 2026. If you do not agree, do not use the service. vibin.click is provided by the operator of the website you are visiting."
     >
       <LegalSection title="The service">
         <LegalP>
-          Vibin provides tools to host synchronized YouTube playback in a shared
+          vibin.click provides tools to host synchronized YouTube playback in a shared
           “room” and to queue videos with others. Features may change at any time.
           The service is provided “as is” without warranties of any kind.
         </LegalP>
       </LegalSection>
 
       <LegalSection title="Eligibility and acceptable use">
-        <LegalP>You agree to use Vibin only in compliance with applicable law.</LegalP>
+        <LegalP>You agree to use vibin.click only in compliance with applicable law.</LegalP>
         <LegalUl>
           <li>
             Do not use the service to harass others, share unlawful content, or
@@ -46,7 +46,7 @@ export default function TermsPage() {
 
       <LegalSection title="Third-party content">
         <LegalP>
-          Videos and metadata come from YouTube and third parties. Vibin does not
+          Videos and metadata come from YouTube and third parties. vibin.click does not
           own that content. Playback and availability depend on YouTube and
           rightsholders.
         </LegalP>
@@ -74,7 +74,7 @@ export default function TermsPage() {
           To the fullest extent permitted by law, the operator of this deployment
           shall not be liable for any indirect, incidental, special,
           consequential, or punitive damages, or any loss of profits or data,
-          arising from your use of Vibin. Our total liability for any claim
+          arising from your use of vibin.click. Our total liability for any claim
           relating to the service shall not exceed the greater of one hundred
           dollars (USD) or the amount you paid us to use the service in the
           twelve months before the claim (if any).

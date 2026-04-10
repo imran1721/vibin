@@ -1,7 +1,7 @@
 {
-  "name": "Vibin — YouTube listening party",
-  "short_name": "Vibin",
-  "description": "Host YouTube playback and let friends queue tracks together.",
+  "name": "vibin.click — Watch YouTube together",
+  "short_name": "vibin.click",
+  "description": "Watch YouTube together in sync. Share a link and queue from your phones.",
   "start_url": "/",
   "scope": "/",
   "id": "/",
