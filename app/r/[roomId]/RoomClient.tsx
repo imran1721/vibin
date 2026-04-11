@@ -45,6 +45,7 @@ import {
   setStoredHostRoom,
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
+import { useRoomVisualViewport } from "@/hooks/useRoomVisualViewport";
 
 type Props = {
   roomId: string;
@@ -104,6 +105,13 @@ function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlis
     </svg>
   );
 }
+
+const PANEL_TABS = [
+  { key: "now", label: "Now Playing", icon: "now" },
+  { key: "search", label: "Search", icon: "search" },
+  { key: "chat", label: "Chat", icon: "chat" },
+  { key: "playlists", label: "Playlists", icon: "playlists" },
+] as const;
 
 /** Throttled server touch so closed tabs go stale and host can prune. */
 const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
@@ -298,18 +306,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
   const reactionSeqRef = useRef(0);
-  const reactionHoldActiveRef = useRef(false);
-  const reactionPickerHoldActiveRef = useRef(false);
-  const reactionPressTimerRef = useRef<number | null>(null);
-  const reactionRepeatTimerRef = useRef<number | null>(null);
-  const reactionPickerTimerRef = useRef<number | null>(null);
+  /** Long-press opened the picker this gesture — pointer up must not fire a send. */
+  const reactionPickerOpenedByHoldRef = useRef(false);
+  const reactionLongPressTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
   const playbackReconcileTimerRef = useRef<number | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatInputRef = useRef<HTMLInputElement | null>(null);
   const activePanelRef = useRef<"now" | "search" | "playlists" | "chat">("now");
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
+
+  useRoomVisualViewport();
 
   useEffect(() => {
     if (!justCreated || typeof window === "undefined") return;
@@ -589,96 +598,42 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [spawnReaction]);
 
   const beginReactionPress = useCallback(() => {
-    reactionHoldActiveRef.current = false;
-    reactionPickerHoldActiveRef.current = false;
-    if (reactionPressTimerRef.current != null) {
-      window.clearTimeout(reactionPressTimerRef.current);
+    reactionPickerOpenedByHoldRef.current = false;
+    if (reactionLongPressTimerRef.current != null) {
+      window.clearTimeout(reactionLongPressTimerRef.current);
+      reactionLongPressTimerRef.current = null;
     }
-    if (reactionRepeatTimerRef.current != null) {
-      window.clearInterval(reactionRepeatTimerRef.current);
-      reactionRepeatTimerRef.current = null;
-    }
-    if (reactionPickerTimerRef.current != null) {
-      window.clearTimeout(reactionPickerTimerRef.current);
-      reactionPickerTimerRef.current = null;
-    }
-    reactionPressTimerRef.current = window.setTimeout(() => {
-      reactionHoldActiveRef.current = true;
-      void sendReaction(defaultReaction);
-      reactionRepeatTimerRef.current = window.setInterval(() => {
-        void sendReaction(defaultReaction);
-      }, 260);
-      reactionPressTimerRef.current = null;
-    }, 380);
-
-    // Extra-long press opens picker so users can still change default emoji.
-    reactionPickerTimerRef.current = window.setTimeout(() => {
-      reactionPickerHoldActiveRef.current = true;
-      if (reactionPressTimerRef.current != null) {
-        window.clearTimeout(reactionPressTimerRef.current);
-        reactionPressTimerRef.current = null;
-      }
-      if (reactionRepeatTimerRef.current != null) {
-        window.clearInterval(reactionRepeatTimerRef.current);
-        reactionRepeatTimerRef.current = null;
-      }
+    reactionLongPressTimerRef.current = window.setTimeout(() => {
+      reactionLongPressTimerRef.current = null;
+      reactionPickerOpenedByHoldRef.current = true;
       setReactionPickerOpen(true);
-      reactionPickerTimerRef.current = null;
-    }, 900);
-  }, [defaultReaction, sendReaction, setReactionPickerOpen]);
+    }, 480);
+  }, [setReactionPickerOpen]);
 
   const endReactionPress = useCallback(() => {
-    if (reactionPressTimerRef.current != null) {
-      window.clearTimeout(reactionPressTimerRef.current);
-      reactionPressTimerRef.current = null;
+    if (reactionLongPressTimerRef.current != null) {
+      window.clearTimeout(reactionLongPressTimerRef.current);
+      reactionLongPressTimerRef.current = null;
     }
-    if (reactionPickerTimerRef.current != null) {
-      window.clearTimeout(reactionPickerTimerRef.current);
-      reactionPickerTimerRef.current = null;
-    }
-    if (reactionRepeatTimerRef.current != null) {
-      window.clearInterval(reactionRepeatTimerRef.current);
-      reactionRepeatTimerRef.current = null;
-    }
-    if (reactionPickerHoldActiveRef.current) {
-      reactionPickerHoldActiveRef.current = false;
-      reactionHoldActiveRef.current = false;
-      return;
-    }
-    if (reactionHoldActiveRef.current) {
-      reactionHoldActiveRef.current = false;
+    if (reactionPickerOpenedByHoldRef.current) {
+      reactionPickerOpenedByHoldRef.current = false;
       return;
     }
     void sendReaction(defaultReaction);
   }, [defaultReaction, sendReaction]);
 
   const cancelReactionPress = useCallback(() => {
-    if (reactionPressTimerRef.current != null) {
-      window.clearTimeout(reactionPressTimerRef.current);
-      reactionPressTimerRef.current = null;
+    if (reactionLongPressTimerRef.current != null) {
+      window.clearTimeout(reactionLongPressTimerRef.current);
+      reactionLongPressTimerRef.current = null;
     }
-    if (reactionPickerTimerRef.current != null) {
-      window.clearTimeout(reactionPickerTimerRef.current);
-      reactionPickerTimerRef.current = null;
-    }
-    if (reactionRepeatTimerRef.current != null) {
-      window.clearInterval(reactionRepeatTimerRef.current);
-      reactionRepeatTimerRef.current = null;
-    }
-    reactionPickerHoldActiveRef.current = false;
-    reactionHoldActiveRef.current = false;
+    reactionPickerOpenedByHoldRef.current = false;
   }, []);
 
   useEffect(() => {
     return () => {
-      if (reactionPressTimerRef.current != null) {
-        window.clearTimeout(reactionPressTimerRef.current);
-      }
-      if (reactionRepeatTimerRef.current != null) {
-        window.clearInterval(reactionRepeatTimerRef.current);
-      }
-      if (reactionPickerTimerRef.current != null) {
-        window.clearTimeout(reactionPickerTimerRef.current);
+      if (reactionLongPressTimerRef.current != null) {
+        window.clearTimeout(reactionLongPressTimerRef.current);
       }
     };
   }, []);
@@ -1745,11 +1700,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [upcomingQueue, videoPublishedAtById]);
 
   const shellMainClass =
-    "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:max-w-5xl";
+    "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[708px]:max-w-5xl";
 
   /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below. */
   const shellMainScrollClass =
-    "vibin-page-bg relative flex h-[100dvh] w-full flex-col overflow-hidden";
+    "vibin-page-bg relative flex min-h-0 h-[var(--vibin-vv-h,100dvh)] w-full flex-col overflow-hidden";
 
   if (configError) {
     return (
@@ -1833,7 +1788,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }}
     >
       <header className="border-border/50 sticky top-0 z-40 w-full shrink-0 border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4 xl:max-w-3xl">
+        <div className="mx-auto flex w-full max-w-[min(100%,96rem)] items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4">
           <div className="flex min-w-0 flex-1 items-center pr-2">
             {isHost ? (
               <>
@@ -1954,7 +1909,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           {reactions.map((reaction) => (
             <span
               key={reaction.id}
-              className="vibin-reaction-float absolute bottom-[max(7rem,calc(env(safe-area-inset-bottom)+5.75rem))] text-3xl drop-shadow-[0_6px_10px_rgba(0,0,0,0.28)] sm:bottom-[5.75rem]"
+              className="vibin-reaction-float absolute bottom-[calc(max(7rem,calc(env(safe-area-inset-bottom)+5.75rem))+var(--vibin-keyboard-inset,0px))] text-3xl drop-shadow-[0_6px_10px_rgba(0,0,0,0.28)] sm:bottom-[calc(5.75rem+var(--vibin-keyboard-inset,0px))] min-[708px]:bottom-[calc(1.25rem+var(--vibin-keyboard-inset,0px))]"
               style={{ left: `${reaction.leftPct}%` }}
             >
               {reaction.emoji}
@@ -1964,16 +1919,18 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       ) : null}
       <section
         ref={videoSectionRef}
-        className="relative flex min-h-0 flex-1 w-full flex-col overflow-hidden px-4 pb-[max(6rem,calc(env(safe-area-inset-bottom)+4.8rem))] pt-3 sm:px-6"
+        className="relative flex min-h-0 flex-1 w-full flex-col overflow-hidden px-4 pb-[max(6rem,calc(env(safe-area-inset-bottom)+4.8rem))] pt-3 sm:px-6 min-[708px]:pb-6 min-[708px]:px-6 xl:px-10"
         style={{
           backgroundImage: `radial-gradient(110% 75% at 50% 12%, ${ambientTheme.glow}, rgba(0,0,0,0) 55%)`,
           transition: "background-image 700ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
+        <div className="mx-auto flex min-h-0 w-full max-w-[min(100%,96rem)] flex-1 flex-col gap-3 min-[708px]:flex-row min-[708px]:items-stretch min-[708px]:gap-8">
+          <div className="order-1 flex min-h-0 w-full shrink-0 flex-col items-center gap-3 min-[708px]:order-2 min-[708px]:min-w-0 min-[708px]:flex-1 min-[708px]:items-stretch min-[708px]:pt-0.5">
         <button
           type="button"
           onClick={() => setGuestListOpen(true)}
-          className="border-border/70 bg-card/70 hover:bg-card/85 focus-visible:ring-ring mx-auto inline-flex w-fit max-w-full cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="border-border/70 bg-card/70 hover:bg-card/85 focus-visible:ring-ring mx-auto inline-flex w-fit max-w-full cursor-pointer items-center gap-2 self-center rounded-full border px-3 py-1.5 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background min-[708px]:self-start"
           title={
             isHost
               ? "Guest list — remove people from the room"
@@ -1999,19 +1956,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             {playbackControlLabel}
           </p>
         </button>
-        <div className="mx-auto mt-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs">
+        <div className="mx-auto mt-2 inline-flex w-fit max-w-full items-center gap-1.5 self-center rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs min-[708px]:self-start">
           <span className="text-foreground">You:</span>
           <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
             {localDisplayLabel}
           </span>
         </div>
 
-        <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
+        <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
           {isHost || guestShowSyncedVideo ? (
             <>
-              <div ref={videoFrameRef}>
+              <div
+                ref={videoFrameRef}
+                className="relative min-w-0 max-w-[100vw] self-stretch -mx-2 w-[calc(100%+1rem)] sm:mx-0 sm:w-full sm:max-w-none"
+              >
                 <YouTubeSyncPlayer
                   ref={syncPlayerRef}
+                  className="rounded-none shadow-lg ring-0 sm:rounded-xl sm:shadow-md sm:ring-2"
                   videoId={nowPlaying?.video_id ?? null}
                   remotePaused={playbackPaused}
                   anchorSec={playbackAnchorSec}
@@ -2056,8 +2017,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                       setReactionPickerOpen(true);
                     }}
                     className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
-                    aria-label={`Send default reaction ${defaultReaction}. Long press to change.`}
-                    title="Tap to react · long-press to change default"
+                    aria-label={`Send reaction ${defaultReaction}. Hold to change emoji.`}
+                    title="Tap to send · hold to change emoji"
                   >
                     <span className="pointer-events-none select-none" aria-hidden>
                       {defaultReaction}
@@ -2075,9 +2036,42 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               Show synced video
             </button>
           )}
+          </div>
+        </div>
+        <div className="order-2 flex min-h-0 w-full min-w-0 flex-1 flex-col min-[708px]:order-1 min-[708px]:min-h-0 min-[708px]:w-[min(22rem,36vw)] min-[708px]:max-w-sm min-[708px]:shrink-0 min-[708px]:rounded-2xl min-[708px]:border min-[708px]:border-border/70 min-[708px]:bg-card/35 min-[708px]:p-3 xl:w-96 xl:max-w-md">
+          <nav
+            className="mb-3 hidden grid-cols-2 gap-1.5 min-[708px]:grid"
+            aria-label="Room panels"
+          >
+            {PANEL_TABS.map((tab) => {
+              const active = activePanel === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActivePanel(tab.key)}
+                  className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all duration-200 sm:min-h-10 sm:gap-2 sm:px-2.5 sm:text-xs ${active ? "bg-primary text-primary-foreground shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
+                  aria-pressed={active}
+                  aria-label={tab.label}
+                  title={tab.label}
+                >
+                  <span className="relative inline-flex shrink-0">
+                    <TabIcon name={tab.icon} active={active} />
+                    {tab.key === "chat" && unreadChatCount > 0 ? (
+                      <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
+                        {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="min-w-0 truncate tracking-tight">{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-y-auto [-webkit-overflow-scrolling:touch] min-[708px]:min-h-[min(70vh,40rem)]">
           {activePanel === "now" ? (
             <>
-              <div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-2xl border border-border/70 bg-card/65 px-3 py-2.5 shadow-sm">
+              <div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-2xl border border-border/70 bg-card/65 px-3 py-2.5 shadow-sm min-[708px]:max-w-none">
                 {nowPlaying?.thumb_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -2103,7 +2097,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             </>
           ) : null}
           {activePanel === "now" ? (
-            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3">
+            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-foreground text-sm font-semibold">Next in queue</p>
                 {upcomingQueue.length > 0 ? (
@@ -2186,7 +2180,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             </section>
           ) : null}
           <section
-            className={`w-full max-w-2xl min-h-0 flex-1 ${activePanel === "search" ? "" : "hidden"
+            className={`w-full max-w-2xl min-h-0 flex-1 min-[708px]:max-w-none ${activePanel === "search" ? "" : "hidden"
               }`}
           >
             {hasOpenedSearch ? (
@@ -2194,7 +2188,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             ) : null}
           </section>
           <section
-            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 ${activePanel === "chat" ? "" : "hidden"
+            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none ${activePanel === "chat" ? "" : "hidden"
               }`}
           >
             <div className="flex h-full min-h-0 flex-col">
@@ -2287,8 +2281,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               </div>
               <div className="mt-2 flex items-center gap-2">
                 <input
+                  ref={chatInputRef}
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
+                  onFocus={() => {
+                    requestAnimationFrame(() => {
+                      chatInputRef.current?.scrollIntoView({
+                        block: "nearest",
+                        inline: "nearest",
+                      });
+                    });
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -2297,6 +2300,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   }}
                   placeholder="Type a message..."
                   maxLength={240}
+                  enterKeyHint="send"
                   className="border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 flex-1 rounded-xl border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 />
                 <button
@@ -2312,7 +2316,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           </section>
           {isHost ? (
             <section
-              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 ${activePanel === "playlists" ? "" : "hidden"
+              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
                 }`}
             >
               {hasOpenedPlaylists ? (
@@ -2342,7 +2346,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               ) : null}
             </section>
           ) : activePanel === "playlists" ? (
-            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3">
+            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
               <div className="flex h-full min-h-0 items-center justify-center">
                 <p className="text-muted-foreground text-sm">
                   Only hosts can manage playlists.
@@ -2350,17 +2354,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               </div>
             </section>
           ) : null}
+          </div>
+        </div>
         </div>
       </section>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-4 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2.5">
+      <div
+        className="pointer-events-none fixed inset-x-0 z-50 px-4 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2.5 min-[708px]:hidden"
+        style={{ bottom: "var(--vibin-keyboard-inset, 0px)" }}
+      >
         <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border/75 bg-background/92 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
-          {([
-            { key: "now", label: "Now Playing", icon: "now" },
-            { key: "search", label: "Search", icon: "search" },
-            { key: "chat", label: "Chat", icon: "chat" },
-            { key: "playlists", label: "Playlists", icon: "playlists" },
-          ] as const).map((tab) => {
+          {PANEL_TABS.map((tab) => {
             const active = activePanel === tab.key;
             return (
               <button

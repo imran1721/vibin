@@ -37,6 +37,8 @@ type Props = {
   onAutoResync?: () => void;
   /** Increment to force a hard seek to current room timeline. */
   forceResyncToken?: number;
+  /** Merged onto the player surface (e.g. edge-to-edge on small viewports). */
+  className?: string;
 };
 
 let iframeApiPromise: Promise<void> | null = null;
@@ -95,6 +97,7 @@ export const YouTubeSyncPlayer = forwardRef<
     onIframePausePlay,
     onAutoResync,
     forceResyncToken = 0,
+    className: surfaceClassName,
   },
   ref
 ) {
@@ -533,10 +536,9 @@ export const YouTubeSyncPlayer = forwardRef<
 
   return (
     <div
-      className="ring-primary/25 relative w-full overflow-hidden rounded-xl bg-black shadow-md ring-2"
+      className={`ring-primary/25 relative w-full max-h-[min(42vh,22rem)] overflow-hidden rounded-xl bg-black shadow-md ring-2 min-[708px]:max-h-[min(72vh,48rem)] ${surfaceClassName ?? ""}`}
       style={{
         aspectRatio: "16 / 9",
-        maxHeight: "min(42vh, 22rem)",
       }}
     >
       <div className="h-full w-full" ref={containerRef} />
