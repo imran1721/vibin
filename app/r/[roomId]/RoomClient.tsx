@@ -1704,7 +1704,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below. */
   const shellMainScrollClass =
-    "vibin-page-bg relative flex min-h-0 h-[var(--vibin-vv-h,100dvh)] w-full flex-col overflow-hidden";
+    "vibin-page-bg relative flex min-h-0 h-[100dvh] w-full flex-col overflow-hidden";
 
   if (configError) {
     return (
@@ -1770,8 +1770,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   const playbackBusy = queueJumpBusy;
   const peopleWatchingCount = Math.max(1, guestCount + 1);
-  const visiblePresenceDots = Math.min(peopleWatchingCount, 6);
-  const playbackControlLabel = "Everyone can control playback";
   const localParticipantId = getParticipantId();
   const readyCount = readyCheck?.readyUserIds.length ?? 0;
   const readyTotal = readyCheck?.requiredCount ?? 0;
@@ -1927,435 +1925,426 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[min(100%,96rem)] flex-1 flex-col gap-3 min-[708px]:flex-row min-[708px]:items-stretch min-[708px]:gap-8">
           <div className="order-1 flex min-h-0 w-full shrink-0 flex-col items-center gap-3 min-[708px]:order-2 min-[708px]:min-w-0 min-[708px]:flex-1 min-[708px]:items-stretch min-[708px]:pt-0.5">
-        <button
-          type="button"
-          onClick={() => setGuestListOpen(true)}
-          className="border-border/70 bg-card/70 hover:bg-card/85 focus-visible:ring-ring mx-auto inline-flex w-fit max-w-full cursor-pointer items-center gap-2 self-center rounded-full border px-3 py-1.5 text-left shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background min-[708px]:self-start"
-          title={
-            isHost
-              ? "Guest list — remove people from the room"
-              : "Who is in the room"
-          }
-          aria-label={isHost ? "Open guest list" : "Who is watching"}
-        >
-          <div className="flex items-center">
-            {Array.from({ length: visiblePresenceDots }, (_, idx) => (
-              <span
-                key={idx}
-                className={`ring-background inline-block size-2.5 rounded-full ring-2 ${idx % 3 === 0 ? "bg-emerald-400" : idx % 3 === 1 ? "bg-sky-400" : "bg-violet-400"} ${idx > 0 ? "-ml-1.5" : ""}`}
-                aria-hidden
-              />
-            ))}
-          </div>
-          <p className="text-foreground text-xs font-semibold tracking-tight sm:text-sm">
-            {peopleWatchingCount}{" "}
-            {peopleWatchingCount === 1 ? "person" : "people"} watching
-          </p>
-          <span className="text-primary">•</span>
-          <p className="text-primary text-xs font-semibold tracking-tight sm:text-sm">
-            {playbackControlLabel}
-          </p>
-        </button>
-        <div className="mx-auto mt-2 inline-flex w-fit max-w-full items-center gap-1.5 self-center rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs min-[708px]:self-start">
-          <span className="text-foreground">You:</span>
-          <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
-            {localDisplayLabel}
-          </span>
-        </div>
-
-        <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
-          {isHost || guestShowSyncedVideo ? (
-            <>
-              <div
-                ref={videoFrameRef}
-                className="relative min-w-0 max-w-[100vw] self-stretch -mx-2 w-[calc(100%+1rem)] sm:mx-0 sm:w-full sm:max-w-none"
+            <div className="mx-auto mt-1 inline-flex w-fit max-w-full items-center gap-1.5 self-center rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs min-[708px]:self-start">
+              <span className="text-foreground">You:</span>
+              <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
+                {localDisplayLabel}
+              </span>
+              <span className="text-muted-foreground/70">•</span>
+              <button
+                type="button"
+                onClick={() => setGuestListOpen(true)}
+                className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                title={
+                  isHost
+                    ? "Guest list — remove people from the room"
+                    : "Who is in the room"
+                }
+                aria-label={isHost ? "Open guest list" : "Who is watching"}
               >
-                <YouTubeSyncPlayer
-                  ref={syncPlayerRef}
-                  className="rounded-none shadow-lg ring-0 sm:rounded-xl sm:shadow-md sm:ring-2"
-                  videoId={nowPlaying?.video_id ?? null}
-                  remotePaused={playbackPaused}
-                  anchorSec={playbackAnchorSec}
-                  anchorAtIso={playbackAnchorAt}
-                  isHost={isHost}
-                  onHostVideoEnded={advanceToNextTrack}
-                  onPlaybackScrub={isHost ? reportIframeSeek : undefined}
-                  onIframePausePlay={reportIframePausePlay}
-                  onAutoResync={handleAutoResyncNotice}
-                  forceResyncToken={forceResyncToken}
+                <span
+                  className="inline-block size-1.5 rounded-full bg-emerald-400"
+                  aria-hidden
                 />
-              </div>
-              <div className="-mt-13 mr-3 z-20 self-end">
-                <div className="relative flex items-end justify-end">
-                  {reactionPickerOpen ? (
-                    <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
-                      {["🔥", "👏", "😂", "❤️", "🎉", "🤯"].map((emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => {
-                            setDefaultReaction(emoji);
-                            setReactionPickerOpen(false);
-                          }}
-                          className={`hover:bg-muted focus-visible:ring-ring inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${defaultReaction === emoji ? "bg-primary/15" : ""}`}
-                          aria-label={`Set default reaction ${emoji}`}
-                          title={`Set ${emoji} as default`}
-                        >
-                          {emoji}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onPointerDown={beginReactionPress}
-                    onPointerUp={endReactionPress}
-                    onPointerCancel={cancelReactionPress}
-                    onPointerLeave={cancelReactionPress}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setReactionPickerOpen(true);
-                    }}
-                    className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
-                    aria-label={`Send reaction ${defaultReaction}. Hold to change emoji.`}
-                    title="Tap to send · hold to change emoji"
+                <span className="text-[11px] font-semibold sm:text-xs">
+                  {peopleWatchingCount} watching
+                </span>
+              </button>
+            </div>
+
+            <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
+              {isHost || guestShowSyncedVideo ? (
+                <>
+                  <div
+                    ref={videoFrameRef}
+                    className="relative min-w-0 max-w-[100vw] self-stretch -mx-2 w-[calc(100%+1rem)] sm:mx-0 sm:w-full sm:max-w-none"
                   >
-                    <span className="pointer-events-none select-none" aria-hidden>
-                      {defaultReaction}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setGuestVideoPref(true)}
-              className="border-border bg-card/60 inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-semibold"
-            >
-              Show synced video
-            </button>
-          )}
-          </div>
-        </div>
-        <div className="order-2 flex min-h-0 w-full min-w-0 flex-1 flex-col min-[708px]:order-1 min-[708px]:min-h-0 min-[708px]:w-[min(22rem,36vw)] min-[708px]:max-w-sm min-[708px]:shrink-0 min-[708px]:rounded-2xl min-[708px]:border min-[708px]:border-border/70 min-[708px]:bg-card/35 min-[708px]:p-3 xl:w-96 xl:max-w-md">
-          <nav
-            className="mb-3 hidden grid-cols-2 gap-1.5 min-[708px]:grid"
-            aria-label="Room panels"
-          >
-            {PANEL_TABS.map((tab) => {
-              const active = activePanel === tab.key;
-              return (
+                    <YouTubeSyncPlayer
+                      ref={syncPlayerRef}
+                      className="rounded-none shadow-lg ring-0 sm:rounded-xl sm:shadow-md sm:ring-2"
+                      videoId={nowPlaying?.video_id ?? null}
+                      remotePaused={playbackPaused}
+                      anchorSec={playbackAnchorSec}
+                      anchorAtIso={playbackAnchorAt}
+                      isHost={isHost}
+                      onHostVideoEnded={advanceToNextTrack}
+                      onPlaybackScrub={isHost ? reportIframeSeek : undefined}
+                      onIframePausePlay={reportIframePausePlay}
+                      onAutoResync={handleAutoResyncNotice}
+                      forceResyncToken={forceResyncToken}
+                    />
+                  </div>
+                  <div className="-mt-13 mr-3 z-20 self-end">
+                    <div className="relative flex items-end justify-end">
+                      {reactionPickerOpen ? (
+                        <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
+                          {["🔥", "👏", "😂", "❤️", "🎉", "🤯"].map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              onClick={() => {
+                                setDefaultReaction(emoji);
+                                setReactionPickerOpen(false);
+                              }}
+                              className={`hover:bg-muted focus-visible:ring-ring inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${defaultReaction === emoji ? "bg-primary/15" : ""}`}
+                              aria-label={`Set default reaction ${emoji}`}
+                              title={`Set ${emoji} as default`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onPointerDown={beginReactionPress}
+                        onPointerUp={endReactionPress}
+                        onPointerCancel={cancelReactionPress}
+                        onPointerLeave={cancelReactionPress}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setReactionPickerOpen(true);
+                        }}
+                        className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
+                        aria-label={`Send reaction ${defaultReaction}. Hold to change emoji.`}
+                        title="Tap to send · hold to change emoji"
+                      >
+                        <span className="pointer-events-none select-none" aria-hidden>
+                          {defaultReaction}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
                 <button
-                  key={tab.key}
                   type="button"
-                  onClick={() => setActivePanel(tab.key)}
-                  className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all duration-200 sm:min-h-10 sm:gap-2 sm:px-2.5 sm:text-xs ${active ? "bg-primary text-primary-foreground shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
-                  aria-pressed={active}
-                  aria-label={tab.label}
-                  title={tab.label}
+                  onClick={() => setGuestVideoPref(true)}
+                  className="border-border bg-card/60 inline-flex min-h-11 items-center justify-center rounded-xl border px-4 py-2.5 text-sm font-semibold"
                 >
-                  <span className="relative inline-flex shrink-0">
-                    <TabIcon name={tab.icon} active={active} />
-                    {tab.key === "chat" && unreadChatCount > 0 ? (
-                      <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
-                        {unreadChatCount > 99 ? "99+" : unreadChatCount}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="min-w-0 truncate tracking-tight">{tab.label}</span>
+                  Show synced video
                 </button>
-              );
-            })}
-          </nav>
-          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-y-auto [-webkit-overflow-scrolling:touch] min-[708px]:min-h-[min(70vh,40rem)]">
-          {activePanel === "now" ? (
-            <>
-              <div className="mx-auto flex w-full max-w-2xl items-center gap-3 rounded-2xl border border-border/70 bg-card/65 px-3 py-2.5 shadow-sm min-[708px]:max-w-none">
-                {nowPlaying?.thumb_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={nowPlaying.thumb_url}
-                    alt={nowPlaying.title}
-                    width={72}
-                    height={72}
-                    className="h-14 w-14 shrink-0 rounded-xl object-cover shadow-md shadow-black/30 sm:h-16 sm:w-16"
-                  />
-                ) : (
-                  <div className="bg-card h-14 w-14 shrink-0 rounded-xl border border-border/70 sm:h-16 sm:w-16" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="font-display line-clamp-2 text-left text-[1.1rem] font-bold leading-tight sm:text-[1.35rem]">
-                    {nowPlaying?.title ?? "Nothing playing"}
-                  </p>
-                  <div className="mt-2 grid max-w-sm grid-cols-2 gap-2.5">
-                    <button type="button" onClick={() => void goPrevious()} disabled={!canPrev || playbackBusy} className="border-border bg-card/80 hover:bg-card min-h-10 rounded-xl border text-sm font-bold transition-colors disabled:opacity-45">Prev</button>
-                    <button type="button" onClick={() => void goNext()} disabled={playbackBusy || !hasNowPlaying} className="bg-primary text-primary-foreground hover:brightness-105 min-h-10 rounded-xl text-sm font-bold transition-[filter] disabled:opacity-45">Next</button>
+              )}
+            </div>
+          </div>
+          <div className="order-2 flex min-h-0 w-full min-w-0 flex-1 flex-col min-[708px]:order-1 min-[708px]:min-h-0 min-[708px]:w-[min(22rem,36vw)] min-[708px]:max-w-sm min-[708px]:shrink-0 min-[708px]:rounded-2xl min-[708px]:border min-[708px]:border-border/70 min-[708px]:bg-card/35 min-[708px]:p-3 xl:w-96 xl:max-w-md">
+            <nav
+              className="mb-3 hidden grid-cols-2 gap-1.5 min-[708px]:grid"
+              aria-label="Room panels"
+            >
+              {PANEL_TABS.map((tab) => {
+                const active = activePanel === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setActivePanel(tab.key)}
+                    className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all duration-200 sm:min-h-10 sm:gap-2 sm:px-2.5 sm:text-xs ${active ? "bg-primary text-primary-foreground shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
+                    aria-pressed={active}
+                    aria-label={tab.label}
+                    title={tab.label}
+                  >
+                    <span className="relative inline-flex shrink-0">
+                      <TabIcon name={tab.icon} active={active} />
+                      {tab.key === "chat" && unreadChatCount > 0 ? (
+                        <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
+                          {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="min-w-0 truncate tracking-tight">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-y-auto [-webkit-overflow-scrolling:touch] min-[708px]:min-h-[min(70vh,40rem)]">
+              {activePanel === "now" ? (
+                <>
+                  <div className="mx-auto flex w-full max-w-2xl items-center gap-2 rounded-xl border border-border/70 bg-card/65 px-2.5 py-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:px-3 sm:py-2.5 min-[708px]:max-w-none">
+                    {nowPlaying?.thumb_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={nowPlaying.thumb_url}
+                        alt={nowPlaying.title}
+                        width={72}
+                        height={72}
+                        className="h-11 w-11 shrink-0 rounded-lg object-cover shadow-md shadow-black/30 sm:h-16 sm:w-16 sm:rounded-xl"
+                      />
+                    ) : (
+                      <div className="bg-card h-11 w-11 shrink-0 rounded-lg border border-border/70 sm:h-16 sm:w-16 sm:rounded-xl" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="font-display line-clamp-1 text-left text-base font-bold leading-tight sm:line-clamp-2 sm:text-[1.35rem]">
+                        {nowPlaying?.title ?? "Nothing playing"}
+                      </p>
+                      <div className="mt-1.5 grid max-w-sm grid-cols-2 gap-2 sm:mt-2 sm:gap-2.5">
+                        <button type="button" onClick={() => void goPrevious()} disabled={!canPrev || playbackBusy} className="border-border bg-card/80 hover:bg-card min-h-9 rounded-lg border text-xs font-bold transition-colors disabled:opacity-45 sm:min-h-10 sm:rounded-xl sm:text-sm">Prev</button>
+                        <button type="button" onClick={() => void goNext()} disabled={playbackBusy || !hasNowPlaying} className="bg-primary text-primary-foreground hover:brightness-105 min-h-9 rounded-lg text-xs font-bold transition-[filter] disabled:opacity-45 sm:min-h-10 sm:rounded-xl sm:text-sm">Next</button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : null}
+              {activePanel === "now" ? (
+                <section className="w-full max-w-2xl min-h-0 flex-1 rounded-xl border border-border/70 bg-card/60 px-2.5 py-2.5 sm:rounded-2xl sm:px-3 sm:py-3 min-[708px]:max-w-none">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-foreground text-sm font-semibold">Next in queue</p>
+                    {upcomingQueue.length > 0 ? (
+                      <p className="text-muted-foreground text-xs">
+                        {upcomingQueue.length} upcoming
+                      </p>
+                    ) : null}
+                  </div>
+                  {upcomingQueue.length > 0 ? (
+                    <ul
+                      className="mt-2 flex h-[calc(100%-1.75rem)] min-h-0 flex-col gap-2 overflow-y-auto pr-1"
+                      onScroll={handleUpcomingQueueScroll}
+                    >
+                      {visibleUpcomingQueue.map((item, idx) => (
+                        <li
+                          key={item.id}
+                          className="border-border/70 bg-background/55 rounded-xl border"
+                        >
+                          <div className="flex items-start gap-2.5 px-2.5 py-2">
+                            <button
+                              type="button"
+                              onClick={() => void handlePlayQueueItem(item.id)}
+                              className="hover:bg-muted/55 focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0.5 py-0.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            >
+                              <span className="text-muted-foreground w-5 shrink-0 text-center text-xs font-semibold">
+                                {idx + 1}
+                              </span>
+                              {item.thumb_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.thumb_url}
+                                  alt={item.title}
+                                  width={48}
+                                  height={48}
+                                  className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                                />
+                              ) : (
+                                <div className="bg-muted h-10 w-10 shrink-0 rounded-lg" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-foreground line-clamp-2 text-sm font-medium">
+                                  {item.title}
+                                </p>
+                                <p className="text-muted-foreground mt-0.5 text-[11px]">
+                                  {`Uploaded ${formatIsoDate(videoPublishedAtById[item.video_id]) || "Unknown"} • Added by ${item.added_by?.trim() || "Anonymous"}`}
+                                </p>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeQueueItem(item)}
+                              className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                              title="Remove from queue"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                      {visibleUpcomingQueue.length < upcomingQueue.length ? (
+                        <li className="text-muted-foreground py-1 text-center text-xs">
+                          Loading more queue items...
+                        </li>
+                      ) : null}
+                    </ul>
+                  ) : (
+                    <div className="border-border/70 bg-background/40 mt-2 rounded-xl border px-3 py-3">
+                      <p className="text-foreground text-sm font-medium">
+                        No more videos in queue.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("search")}
+                        className="text-primary hover:text-primary/90 mt-1.5 text-sm font-semibold underline underline-offset-4"
+                      >
+                        Search and add more videos
+                      </button>
+                    </div>
+                  )}
+                </section>
+              ) : null}
+              <section
+                className={`w-full max-w-2xl min-h-0 flex-1 min-[708px]:max-w-none ${activePanel === "search" ? "" : "hidden"
+                  }`}
+              >
+                {hasOpenedSearch ? (
+                  <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
+                ) : null}
+              </section>
+              <section
+                className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none ${activePanel === "chat" ? "" : "hidden"
+                  }`}
+              >
+                <div className="flex h-full min-h-0 flex-col">
+                  <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                    {chatMessages.length === 0 ? (
+                      <div className="flex h-full min-h-0 items-center justify-center">
+                        <p className="text-muted-foreground text-sm">
+                          Chat is quiet. Drop the first message.
+                        </p>
+                      </div>
+                    ) : (
+                      chatMessages.map((msg) => {
+                        const mine =
+                          msg.senderUserId != null &&
+                          msg.senderUserId === currentUserIdRef.current;
+                        return (
+                          <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
+                            {!mine ? (
+                              <button
+                                type="button"
+                                tabIndex={-1}
+                                aria-hidden
+                                className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
+                              >
+                                {msg.avatarDataUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={msg.avatarDataUrl}
+                                    alt={msg.senderLabel}
+                                    className="size-full object-cover"
+                                    draggable={false}
+                                  />
+                                ) : (
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="size-4 text-muted-foreground"
+                                    aria-hidden
+                                  >
+                                    <circle cx="12" cy="8" r="3.5" />
+                                    <path d="M5 19a7 7 0 0 1 14 0" />
+                                  </svg>
+                                )}
+                              </button>
+                            ) : null}
+                            <div
+                              className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
+                            >
+                              <p className="text-[11px] font-semibold text-muted-foreground">
+                                {msg.senderLabel}
+                              </p>
+                              <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
+                            </div>
+                            {mine ? (
+                              <button
+                                type="button"
+                                tabIndex={-1}
+                                aria-hidden
+                                className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
+                              >
+                                {msg.avatarDataUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={msg.avatarDataUrl}
+                                    alt={msg.senderLabel}
+                                    className="size-full object-cover"
+                                    draggable={false}
+                                  />
+                                ) : (
+                                  <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    className="size-4 text-muted-foreground"
+                                    aria-hidden
+                                  >
+                                    <circle cx="12" cy="8" r="3.5" />
+                                    <path d="M5 19a7 7 0 0 1 14 0" />
+                                  </svg>
+                                )}
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      ref={chatInputRef}
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      onFocus={() => {
+                        requestAnimationFrame(() => {
+                          chatInputRef.current?.scrollIntoView({
+                            block: "nearest",
+                            inline: "nearest",
+                          });
+                        });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void sendChatMessage();
+                        }
+                      }}
+                      placeholder="Type a message..."
+                      maxLength={240}
+                      enterKeyHint="send"
+                      className="border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 flex-1 rounded-xl border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void sendChatMessage()}
+                      disabled={chatInput.trim().length === 0}
+                      className="bg-primary text-primary-foreground hover:brightness-105 inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-[filter] disabled:opacity-45"
+                    >
+                      Send
+                    </button>
                   </div>
                 </div>
-              </div>
-            </>
-          ) : null}
-          {activePanel === "now" ? (
-            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-foreground text-sm font-semibold">Next in queue</p>
-                {upcomingQueue.length > 0 ? (
-                  <p className="text-muted-foreground text-xs">
-                    {upcomingQueue.length} upcoming
-                  </p>
-                ) : null}
-              </div>
-              {upcomingQueue.length > 0 ? (
-                <ul
-                  className="mt-2 flex h-[calc(100%-1.75rem)] min-h-0 flex-col gap-2 overflow-y-auto pr-1"
-                  onScroll={handleUpcomingQueueScroll}
+              </section>
+              {isHost ? (
+                <section
+                  className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
+                    }`}
                 >
-                  {visibleUpcomingQueue.map((item, idx) => (
-                    <li
-                      key={item.id}
-                      className="border-border/70 bg-background/55 rounded-xl border"
+                  {hasOpenedPlaylists ? (
+                    <Suspense
+                      fallback={
+                        <div className="flex h-full min-h-0 items-center justify-center">
+                          <p className="text-muted-foreground text-sm">
+                            Loading playlists…
+                          </p>
+                        </div>
+                      }
                     >
-                      <div className="flex items-start gap-2.5 px-2.5 py-2">
-                        <button
-                          type="button"
-                          onClick={() => void handlePlayQueueItem(item.id)}
-                          className="hover:bg-muted/55 focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0.5 py-0.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        >
-                          <span className="text-muted-foreground w-5 shrink-0 text-center text-xs font-semibold">
-                            {idx + 1}
-                          </span>
-                          {item.thumb_url ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={item.thumb_url}
-                              alt={item.title}
-                              width={48}
-                              height={48}
-                              className="h-10 w-10 shrink-0 rounded-lg object-cover"
-                            />
-                          ) : (
-                            <div className="bg-muted h-10 w-10 shrink-0 rounded-lg" />
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <p className="text-foreground line-clamp-2 text-sm font-medium">
-                              {item.title}
-                            </p>
-                            <p className="text-muted-foreground mt-0.5 text-[11px]">
-                              {`Uploaded ${formatIsoDate(videoPublishedAtById[item.video_id]) || "Unknown"} • Added by ${item.added_by?.trim() || "Anonymous"}`}
-                            </p>
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void removeQueueItem(item)}
-                          className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                          title="Remove from queue"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                  {visibleUpcomingQueue.length < upcomingQueue.length ? (
-                    <li className="text-muted-foreground py-1 text-center text-xs">
-                      Loading more queue items...
-                    </li>
+                      <HostYoutubePlaylists
+                        key={playlistsRefreshToken}
+                        roomId={roomId}
+                        queueAttributionLabel={localDisplayLabel}
+                        onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                        omitSectionChrome
+                        queuedVideoIds={queuedVideoIds}
+                        onRequestRefresh={() => setPlaylistsRefreshToken((n) => n + 1)}
+                        onImported={() => {
+                          void loadQueue();
+                          void refreshPlaybackState();
+                        }}
+                      />
+                    </Suspense>
                   ) : null}
-                </ul>
-              ) : (
-                <div className="border-border/70 bg-background/40 mt-2 rounded-xl border px-3 py-3">
-                  <p className="text-foreground text-sm font-medium">
-                    No more videos in queue.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActivePanel("search")}
-                    className="text-primary hover:text-primary/90 mt-1.5 text-sm font-semibold underline underline-offset-4"
-                  >
-                    Search and add more videos
-                  </button>
-                </div>
-              )}
-            </section>
-          ) : null}
-          <section
-            className={`w-full max-w-2xl min-h-0 flex-1 min-[708px]:max-w-none ${activePanel === "search" ? "" : "hidden"
-              }`}
-          >
-            {hasOpenedSearch ? (
-              <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
-            ) : null}
-          </section>
-          <section
-            className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none ${activePanel === "chat" ? "" : "hidden"
-              }`}
-          >
-            <div className="flex h-full min-h-0 flex-col">
-              <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {chatMessages.length === 0 ? (
+                </section>
+              ) : activePanel === "playlists" ? (
+                <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
                   <div className="flex h-full min-h-0 items-center justify-center">
                     <p className="text-muted-foreground text-sm">
-                      Chat is quiet. Drop the first message.
+                      Only hosts can manage playlists.
                     </p>
                   </div>
-                ) : (
-                  chatMessages.map((msg) => {
-                    const mine =
-                      msg.senderUserId != null &&
-                      msg.senderUserId === currentUserIdRef.current;
-                    return (
-                      <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
-                        {!mine ? (
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            aria-hidden
-                            className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
-                          >
-                            {msg.avatarDataUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={msg.avatarDataUrl}
-                                alt={msg.senderLabel}
-                                className="size-full object-cover"
-                                draggable={false}
-                              />
-                            ) : (
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="size-4 text-muted-foreground"
-                                aria-hidden
-                              >
-                                <circle cx="12" cy="8" r="3.5" />
-                                <path d="M5 19a7 7 0 0 1 14 0" />
-                              </svg>
-                            )}
-                          </button>
-                        ) : null}
-                        <div
-                          className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
-                        >
-                          <p className="text-[11px] font-semibold text-muted-foreground">
-                            {msg.senderLabel}
-                          </p>
-                          <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
-                        </div>
-                        {mine ? (
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            aria-hidden
-                            className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
-                          >
-                            {msg.avatarDataUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={msg.avatarDataUrl}
-                                alt={msg.senderLabel}
-                                className="size-full object-cover"
-                                draggable={false}
-                              />
-                            ) : (
-                              <svg
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="size-4 text-muted-foreground"
-                                aria-hidden
-                              >
-                                <circle cx="12" cy="8" r="3.5" />
-                                <path d="M5 19a7 7 0 0 1 14 0" />
-                              </svg>
-                            )}
-                          </button>
-                        ) : null}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  ref={chatInputRef}
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  onFocus={() => {
-                    requestAnimationFrame(() => {
-                      chatInputRef.current?.scrollIntoView({
-                        block: "nearest",
-                        inline: "nearest",
-                      });
-                    });
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void sendChatMessage();
-                    }
-                  }}
-                  placeholder="Type a message..."
-                  maxLength={240}
-                  enterKeyHint="send"
-                  className="border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 flex-1 rounded-xl border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                />
-                <button
-                  type="button"
-                  onClick={() => void sendChatMessage()}
-                  disabled={chatInput.trim().length === 0}
-                  className="bg-primary text-primary-foreground hover:brightness-105 inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-[filter] disabled:opacity-45"
-                >
-                  Send
-                </button>
-              </div>
-            </div>
-          </section>
-          {isHost ? (
-            <section
-              className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
-                }`}
-            >
-              {hasOpenedPlaylists ? (
-                <Suspense
-                  fallback={
-                    <div className="flex h-full min-h-0 items-center justify-center">
-                      <p className="text-muted-foreground text-sm">
-                        Loading playlists…
-                      </p>
-                    </div>
-                  }
-                >
-                  <HostYoutubePlaylists
-                    key={playlistsRefreshToken}
-                    roomId={roomId}
-                    queueAttributionLabel={localDisplayLabel}
-                    onQueueActivity={(msg) => void notifyRoomActivity(msg)}
-                    omitSectionChrome
-                    queuedVideoIds={queuedVideoIds}
-                    onRequestRefresh={() => setPlaylistsRefreshToken((n) => n + 1)}
-                    onImported={() => {
-                      void loadQueue();
-                      void refreshPlaybackState();
-                    }}
-                  />
-                </Suspense>
+                </section>
               ) : null}
-            </section>
-          ) : activePanel === "playlists" ? (
-            <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
-              <div className="flex h-full min-h-0 items-center justify-center">
-                <p className="text-muted-foreground text-sm">
-                  Only hosts can manage playlists.
-                </p>
-              </div>
-            </section>
-          ) : null}
+            </div>
           </div>
-        </div>
         </div>
       </section>
 
