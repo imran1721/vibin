@@ -1702,9 +1702,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const shellMainClass =
     "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[708px]:max-w-5xl";
 
-  /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below. */
+  /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below.
+   *  Height tracks the visual viewport so the mobile keyboard slides in *behind* the chat input
+   *  (video stays static), instead of iOS auto-scrolling the whole page and clipping the player. */
   const shellMainScrollClass =
-    "vibin-page-bg relative flex min-h-0 h-[100dvh] w-full flex-col overflow-hidden";
+    "vibin-page-bg relative flex min-h-0 h-[var(--vibin-vv-h,100dvh)] w-full flex-col overflow-hidden";
 
   if (configError) {
     return (
