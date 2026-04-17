@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -8,6 +7,7 @@ import { ensureAnonymousSession } from "@/lib/auth";
 import { HomeHeroMock } from "@/components/HomeHeroMock";
 import { JoinRoomLoader } from "@/components/JoinRoomLoader";
 import { JoinRoomQrDialog } from "@/components/JoinRoomQrDialog";
+import { LiveRoomsPreview } from "@/components/LiveRoomsPreview";
 import { PwaInstallOption } from "@/components/PwaInstallOption";
 import { AppBrandLockup } from "@/components/AppBrandLockup";
 import { LegalFooter } from "@/components/LegalFooter";
@@ -142,8 +142,9 @@ export function VibinHome() {
             Watch YouTube together. Instantly.
           </h1>
           <p className="text-muted-foreground max-w-[22rem] text-[1.05rem] leading-snug sm:text-lg">
-            No login. No installs. Just share a link and start vibing. Chat and
-            react live with the video—no need to pause the party.
+            Start your own private watch party in one tap, or hop into a public
+            room that&apos;s already vibing. Chat and react live—no login, no
+            installs.
           </p>
         </div>
 
@@ -181,20 +182,12 @@ export function VibinHome() {
             Join a room with your camera — or open a link someone sent you in
             the browser.
           </p>
-          <Link
-            href="/explore"
-            className="text-accent hover:brightness-110 focus-visible:ring-ring -mt-1 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-lg text-sm font-bold underline underline-offset-4 transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4" aria-hidden>
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18" />
-            </svg>
-            Browse public rooms
-          </Link>
         </div>
       </section>
 
-      <HomeHeroMock />
+      <LiveRoomsPreview />
+
+      {/* <HomeHeroMock /> */}
 
       {/* How it works */}
       <section aria-labelledby="how-heading" className="space-y-1">
@@ -206,8 +199,8 @@ export function VibinHome() {
         </h2>
         <ol className="grid grid-cols-3 gap-2 pt-2">
           {[
-            { n: "1", title: "Create", desc: "Start a room" },
-            { n: "2", title: "Share", desc: "Send the link" },
+            { n: "1", title: "Create", desc: "Private by default" },
+            { n: "2", title: "Share or list", desc: "Link or public" },
             { n: "3", title: "Watch", desc: "Stay in sync" },
           ].map((step) => (
             <li
@@ -262,6 +255,16 @@ export function VibinHome() {
                 sub: "Side chat and emoji reactions while you watch",
                 icon: (
                   <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+                ),
+              },
+              {
+                label: "Public or private",
+                sub: "List a room on /explore or keep it link-only",
+                icon: (
+                  <>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M3.6 9h16.8M3.6 15h16.8M12 3a13 13 0 0 1 0 18M12 3a13 13 0 0 0 0 18" />
+                  </>
                 ),
               },
             ].map((item) => (

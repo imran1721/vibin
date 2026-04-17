@@ -114,6 +114,36 @@ const PANEL_TABS = [
   { key: "playlists", label: "Playlists", icon: "playlists" },
 ] as const;
 
+function VisibilityPill({
+  isPublic,
+  canEdit,
+  onClick,
+}: {
+  isPublic: boolean;
+  canEdit: boolean;
+  onClick?: () => void;
+}) {
+  const label = isPublic ? "Public" : "Private";
+  const tone = isPublic
+    ? "bg-accent/15 text-accent border-accent/25"
+    : "border-border bg-muted/45 text-muted-foreground";
+  const cls = `${tone} inline-flex shrink-0 items-center justify-center rounded-full border px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider`;
+  if (canEdit) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        title="Change room visibility"
+        aria-label={`Room is ${label}. Tap to change.`}
+        className={`${cls} hover:brightness-110 focus-visible:ring-ring transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+      >
+        {label}
+      </button>
+    );
+  }
+  return <span className={cls}>{label}</span>;
+}
+
 /** Throttled server touch so closed tabs go stale and host can prune. */
 const ROOM_PRESENCE_HEARTBEAT_MS = 45_000;
 /** Host-only cleanup interval (must exceed heartbeat + network slack). */
@@ -1806,14 +1836,14 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   subtitle={roomTitle}
                   titleRowSuffix={
                     <>
-                      <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
+                      <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider">
                         Host
                       </span>
-                      {roomIsPublic ? (
-                        <span className="bg-accent/15 text-accent border-accent/25 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
-                          Public
-                        </span>
-                      ) : null}
+                      <VisibilityPill
+                        isPublic={roomIsPublic}
+                        canEdit
+                        onClick={() => setRoomSettingsOpen(true)}
+                      />
                     </>
                   }
                 />
@@ -1827,14 +1857,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   subtitle={roomTitle}
                   titleRowSuffix={
                     <>
-                      <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
+                      <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider">
                         Guest
                       </span>
-                      {roomIsPublic ? (
-                        <span className="bg-accent/15 text-accent border-accent/25 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
-                          Public
-                        </span>
-                      ) : null}
+                      <VisibilityPill isPublic={roomIsPublic} canEdit={false} />
                     </>
                   }
                 />
@@ -1845,14 +1871,29 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             <button
               type="button"
               onClick={openGuestInvite}
-              className={headerToolbarBtnClass}
+              className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
               title={
                 isHost
                   ? "QR code and guest link (no host controls)"
                   : "QR code and link to invite more guests"
               }
+              aria-label="Invite guests"
             >
-              Invite
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4.5"
+                aria-hidden
+              >
+                <circle cx="9" cy="8" r="4" />
+                <path d="M2 21a7 7 0 0 1 14 0" />
+                <path d="M19 8v6" />
+                <path d="M22 11h-6" />
+              </svg>
             </button>
             {isHost ? (
               <button
