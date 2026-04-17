@@ -18,6 +18,10 @@ type Props = {
    * knows what the app is and the row needs to stay one line tall on narrow screens.
    */
   hideTagline?: boolean;
+  /**
+   * Replace the tagline with custom text (e.g. the room title). Wins over `hideTagline`.
+   */
+  subtitle?: string | null;
 };
 
 /**
@@ -28,9 +32,16 @@ export function AppBrandLockup({
   markClassName,
   titleRowSuffix,
   hideTagline = false,
+  subtitle,
 }: Props) {
   const mark =
     markClassName ?? "size-10 shrink-0 sm:size-11";
+  const subtitleText =
+    typeof subtitle === "string" && subtitle.trim().length > 0
+      ? subtitle
+      : hideTagline
+        ? null
+        : APP_TAGLINE;
   return (
     <div className={`flex items-center gap-3 ${className}`.trim()}>
       <VibinEqualizerMark className={mark} />
@@ -41,11 +52,11 @@ export function AppBrandLockup({
           </p>
           {titleRowSuffix}
         </div>
-        {hideTagline ? null : (
-          <p className="text-muted-foreground text-xs font-medium">
-            {APP_TAGLINE}
+        {subtitleText ? (
+          <p className="text-muted-foreground truncate text-xs font-medium">
+            {subtitleText}
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

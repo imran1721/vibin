@@ -37,6 +37,7 @@ import {
   type GuestListEntry,
 } from "@/components/GuestListDialog";
 import { RoomProfileSettingsDialog } from "@/components/RoomProfileSettingsDialog";
+import { RoomSettingsDialog } from "@/components/RoomSettingsDialog";
 import {
   clearPartyRoomState,
   GUEST_VIDEO_PREF_KEY,
@@ -289,6 +290,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [chatToastMessage, setChatToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [roomSettingsOpen, setRoomSettingsOpen] = useState(false);
+  const [roomTitle, setRoomTitle] = useState<string | null>(null);
+  const [roomIsPublic, setRoomIsPublic] = useState(false);
   const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
     null
   );
@@ -669,7 +673,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     const { data, error } = await supabase
       .from("rooms")
       .select(
-        "playback_paused, playback_current_item_id, playback_anchor_sec, playback_anchor_at"
+        "playback_paused, playback_current_item_id, playback_anchor_sec, playback_anchor_at, title, is_public"
       )
       .eq("id", roomId)
       .maybeSingle();
@@ -687,6 +691,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           ? at
           : new Date().toISOString()
       );
+      const t = data.title as string | null | undefined;
+      setRoomTitle(typeof t === "string" && t.trim().length > 0 ? t : null);
+      setRoomIsPublic(!!data.is_public);
     }
   }, [roomId]);
 
@@ -1796,10 +1803,18 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <AppBrandLockup
                   className="min-w-0"
                   hideTagline
+                  subtitle={roomTitle}
                   titleRowSuffix={
-                    <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
-                      Host
-                    </span>
+                    <>
+                      <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
+                        Host
+                      </span>
+                      {roomIsPublic ? (
+                        <span className="bg-accent/15 text-accent border-accent/25 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
+                          Public
+                        </span>
+                      ) : null}
+                    </>
                   }
                 />
               </>
@@ -1809,10 +1824,18 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <AppBrandLockup
                   className="min-w-0"
                   hideTagline
+                  subtitle={roomTitle}
                   titleRowSuffix={
-                    <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
-                      Guest
-                    </span>
+                    <>
+                      <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
+                        Guest
+                      </span>
+                      {roomIsPublic ? (
+                        <span className="bg-accent/15 text-accent border-accent/25 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
+                          Public
+                        </span>
+                      ) : null}
+                    </>
                   }
                 />
               </>
@@ -1831,6 +1854,27 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
             >
               Invite
             </button>
+            {isHost ? (
+              <button
+                type="button"
+                onClick={() => setRoomSettingsOpen(true)}
+                className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
+                title="Room settings (title and visibility)"
+                aria-label="Open room settings"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="size-4.5"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.88l.03.03a2 2 0 0 1-2.83 2.83l-.03-.03a1.7 1.7 0 0 0-1.88-.33 1.7 1.7 0 0 0-1.02 1.56V21a2 2 0 0 1-4 0v-.04a1.7 1.7 0 0 0-1.02-1.56 1.7 1.7 0 0 0-1.88.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.02H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.33-1.88l-.03-.03a2 2 0 0 1 2.83-2.83l.03.03a1.7 1.7 0 0 0 1.88.33H9a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.04a1.7 1.7 0 0 0 1.02 1.56 1.7 1.7 0 0 0 1.88-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.88V9c0 .68.4 1.3 1.02 1.56H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z" />
+                </svg>
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
@@ -1854,8 +1898,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   className="size-4.5"
                   aria-hidden
                 >
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.88l.03.03a2 2 0 0 1-2.83 2.83l-.03-.03a1.7 1.7 0 0 0-1.88-.33 1.7 1.7 0 0 0-1.02 1.56V21a2 2 0 0 1-4 0v-.04a1.7 1.7 0 0 0-1.02-1.56 1.7 1.7 0 0 0-1.88.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.02H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.33-1.88l-.03-.03a2 2 0 0 1 2.83-2.83l.03.03a1.7 1.7 0 0 0 1.88.33H9a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.04a1.7 1.7 0 0 0 1.02 1.56 1.7 1.7 0 0 0 1.88-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.88V9c0 .68.4 1.3 1.02 1.56H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z" />
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 21a8 8 0 0 1 16 0" />
                 </svg>
               )}
             </button>
@@ -2415,6 +2459,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         onOpenChange={setSettingsOpen}
         onSaved={handleProfileSaved}
       />
+      {isHost && hostTokenForRpc ? (
+        <RoomSettingsDialog
+          open={roomSettingsOpen}
+          onOpenChange={setRoomSettingsOpen}
+          roomId={roomId}
+          hostToken={hostTokenForRpc}
+          initialTitle={roomTitle}
+          initialIsPublic={roomIsPublic}
+          onSaved={(next) => {
+            setRoomTitle(next.title);
+            setRoomIsPublic(next.isPublic);
+          }}
+        />
+      ) : null}
       {readyCheck ? (
         <div className="border-primary/35 bg-card/95 fixed bottom-[max(0.85rem,calc(env(safe-area-inset-bottom)+0.5rem))] left-1/2 z-[65] w-[min(100vw-1rem,28rem)] -translate-x-1/2 rounded-2xl border px-3 py-3 shadow-xl shadow-black/20 backdrop-blur-md sm:bottom-4 sm:px-4">
           <p className="text-foreground text-sm font-semibold">
