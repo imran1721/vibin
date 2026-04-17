@@ -318,7 +318,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
 
-  useRoomVisualViewport();
+  const { keyboardOpen } = useRoomVisualViewport();
 
   useEffect(() => {
     if (!justCreated || typeof window === "undefined") return;
@@ -1919,42 +1919,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       ) : null}
       <section
         ref={videoSectionRef}
-        className="relative flex min-h-0 flex-1 w-full flex-col overflow-hidden px-4 pb-[max(6rem,calc(env(safe-area-inset-bottom)+4.8rem))] pt-3 sm:px-6 min-[708px]:pb-6 min-[708px]:px-6 xl:px-10"
+        className={`relative flex min-h-0 flex-1 w-full flex-col overflow-hidden px-4 pt-3 sm:px-6 min-[708px]:pb-6 min-[708px]:px-6 xl:px-10 ${keyboardOpen ? "pb-2" : "pb-[max(6rem,calc(env(safe-area-inset-bottom)+4.8rem))]"}`}
         style={{
           backgroundImage: `radial-gradient(110% 75% at 50% 12%, ${ambientTheme.glow}, rgba(0,0,0,0) 55%)`,
           transition: "background-image 700ms cubic-bezier(0.22, 1, 0.36, 1)",
         }}
       >
         <div className="mx-auto flex min-h-0 w-full max-w-[min(100%,96rem)] flex-1 flex-col gap-3 min-[708px]:flex-row min-[708px]:items-stretch min-[708px]:gap-8">
-          <div className="order-1 flex min-h-0 w-full shrink-0 flex-col items-center gap-3 min-[708px]:order-2 min-[708px]:min-w-0 min-[708px]:flex-1 min-[708px]:items-stretch min-[708px]:pt-0.5">
-            <div className="mx-auto mt-1 inline-flex w-fit max-w-full items-center gap-1.5 self-center rounded-full border border-border/60 bg-background/55 px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:text-xs min-[708px]:self-start">
-              <span className="text-foreground">You:</span>
-              <span className="max-w-[14rem] truncate text-foreground sm:max-w-[20rem]">
-                {localDisplayLabel}
-              </span>
-              <span className="text-muted-foreground/70">•</span>
-              <button
-                type="button"
-                onClick={() => setGuestListOpen(true)}
-                className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded-full px-1 py-0.5 text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                title={
-                  isHost
-                    ? "Guest list — remove people from the room"
-                    : "Who is in the room"
-                }
-                aria-label={isHost ? "Open guest list" : "Who is watching"}
-              >
-                <span
-                  className="inline-block size-1.5 rounded-full bg-emerald-400"
-                  aria-hidden
-                />
-                <span className="text-[11px] font-semibold sm:text-xs">
-                  {peopleWatchingCount} watching
-                </span>
-              </button>
-            </div>
-
-            <div className="mx-auto mt-1.5 flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
+          <div className="order-1 flex min-h-0 w-full shrink-0 flex-col items-center min-[708px]:order-2 min-[708px]:min-w-0 min-[708px]:flex-1 min-[708px]:items-stretch min-[708px]:pt-0.5">
+            <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
               {isHost || guestShowSyncedVideo ? (
                 <>
                   <div
@@ -2091,11 +2064,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <section className="w-full max-w-2xl min-h-0 flex-1 rounded-xl border border-border/70 bg-card/60 px-2.5 py-2.5 sm:rounded-2xl sm:px-3 sm:py-3 min-[708px]:max-w-none">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-foreground text-sm font-semibold">Next in queue</p>
-                    {upcomingQueue.length > 0 ? (
-                      <p className="text-muted-foreground text-xs">
-                        {upcomingQueue.length} upcoming
-                      </p>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {upcomingQueue.length > 0 ? (
+                        <p className="text-muted-foreground text-xs">
+                          {upcomingQueue.length} upcoming
+                        </p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setGuestListOpen(true)}
+                        className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        title={isHost ? "Guest list — remove people from the room" : "Who is in the room"}
+                        aria-label={isHost ? "Open guest list" : "Who is watching"}
+                      >
+                        <span className="inline-block size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                        <span className="font-semibold">{peopleWatchingCount}</span>
+                      </button>
+                    </div>
                   </div>
                   {upcomingQueue.length > 0 ? (
                     <ul
@@ -2183,6 +2168,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   }`}
               >
                 <div className="flex h-full min-h-0 flex-col">
+                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-border/60 pb-2">
+                    <p className="text-foreground text-sm font-semibold">Chat</p>
+                    <button
+                      type="button"
+                      onClick={() => setGuestListOpen(true)}
+                      className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      title={isHost ? "Guest list — remove people from the room" : "Who is in the room"}
+                      aria-label={isHost ? "Open guest list" : "Who is watching"}
+                    >
+                      <span className="inline-block size-1.5 rounded-full bg-emerald-400" aria-hidden />
+                      <span className="font-semibold">{peopleWatchingCount}</span>
+                      <span>watching</span>
+                    </button>
+                  </div>
                   <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                     {chatMessages.length === 0 ? (
                       <div className="flex h-full min-h-0 items-center justify-center">
@@ -2351,8 +2350,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       </section>
 
       <div
-        className="pointer-events-none fixed inset-x-0 z-50 px-4 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2.5 min-[708px]:hidden"
+        className={`pointer-events-none fixed inset-x-0 z-50 px-4 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-2.5 min-[708px]:hidden ${keyboardOpen ? "hidden" : ""}`}
         style={{ bottom: "var(--vibin-keyboard-inset, 0px)" }}
+        aria-hidden={keyboardOpen}
       >
         <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border/75 bg-background/92 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
           {PANEL_TABS.map((tab) => {
