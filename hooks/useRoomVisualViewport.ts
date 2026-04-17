@@ -36,12 +36,26 @@ export function useRoomVisualViewport() {
     vv.addEventListener("scroll", apply);
     window.addEventListener("orientationchange", apply);
 
+    /** Lock the document so iOS Safari cannot scroll the page up to chase a focused
+     *  input — the room shell is `position: fixed` and already covers the visible area. */
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverscroll = html.style.overscrollBehavior;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "contain";
+
     return () => {
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
       window.removeEventListener("orientationchange", apply);
       document.documentElement.style.removeProperty(VV_H);
       document.documentElement.style.removeProperty(KB_INSET);
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
       setKeyboardOpen(false);
     };
   }, []);

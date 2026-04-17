@@ -13,6 +13,11 @@ type Props = {
    * Keeps the tagline on its own line below so the pill does not sit beside it.
    */
   titleRowSuffix?: ReactNode;
+  /**
+   * Drop the marketing tagline. Use inside the room header, where the user already
+   * knows what the app is and the row needs to stay one line tall on narrow screens.
+   */
+  hideTagline?: boolean;
 };
 
 /**
@@ -22,6 +27,7 @@ export function AppBrandLockup({
   className = "",
   markClassName,
   titleRowSuffix,
+  hideTagline = false,
 }: Props) {
   const mark =
     markClassName ?? "size-10 shrink-0 sm:size-11";
@@ -35,9 +41,11 @@ export function AppBrandLockup({
           </p>
           {titleRowSuffix}
         </div>
-        <p className="text-muted-foreground text-xs font-medium">
-          {APP_TAGLINE}
-        </p>
+        {hideTagline ? null : (
+          <p className="text-muted-foreground text-xs font-medium">
+            {APP_TAGLINE}
+          </p>
+        )}
       </div>
     </div>
   );

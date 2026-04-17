@@ -1703,10 +1703,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     "vibin-page-bg mx-auto flex w-full max-w-lg flex-col px-[clamp(1rem,4vw,1.5rem)] pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[708px]:max-w-5xl";
 
   /** Room shell: full-width main so sticky header bar can span the viewport; content is inset below.
-   *  Height tracks the visual viewport so the mobile keyboard slides in *behind* the chat input
-   *  (video stays static), instead of iOS auto-scrolling the whole page and clipping the player. */
+   *  Pinned with `position: fixed` so iOS Safari cannot scroll the document up when the chat input
+   *  is focused — the player stays put and only the inner panel area adapts to the visual viewport. */
   const shellMainScrollClass =
-    "vibin-page-bg relative flex min-h-0 h-[var(--vibin-vv-h,100dvh)] w-full flex-col overflow-hidden";
+    "vibin-page-bg fixed inset-x-0 top-0 flex min-h-0 h-[var(--vibin-vv-h,100dvh)] flex-col overflow-hidden";
 
   if (configError) {
     return (
@@ -1795,6 +1795,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <h1 className="sr-only">vibin.click — you are the host</h1>
                 <AppBrandLockup
                   className="min-w-0"
+                  hideTagline
                   titleRowSuffix={
                     <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider sm:text-[0.65rem]">
                       Host
@@ -1807,6 +1808,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <h1 className="sr-only">vibin.click — you are a guest</h1>
                 <AppBrandLockup
                   className="min-w-0"
+                  hideTagline
                   titleRowSuffix={
                     <span className="border-border bg-muted/45 text-muted-foreground inline-flex shrink-0 items-center justify-center rounded-full border px-2.5 py-0.5 text-[0.65rem] font-semibold leading-none sm:px-3 sm:text-xs">
                       Guest
