@@ -2391,46 +2391,36 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   </div>
                 </div>
               </section>
-              {isHost ? (
-                <section
-                  className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
-                    }`}
-                >
-                  {hasOpenedPlaylists ? (
-                    <Suspense
-                      fallback={
-                        <div className="flex h-full min-h-0 items-center justify-center">
-                          <p className="text-muted-foreground text-sm">
-                            Loading playlists…
-                          </p>
-                        </div>
-                      }
-                    >
-                      <HostYoutubePlaylists
-                        key={playlistsRefreshToken}
-                        roomId={roomId}
-                        queueAttributionLabel={localDisplayLabel}
-                        onQueueActivity={(msg) => void notifyRoomActivity(msg)}
-                        omitSectionChrome
-                        queuedVideoIds={queuedVideoIds}
-                        onRequestRefresh={() => setPlaylistsRefreshToken((n) => n + 1)}
-                        onImported={() => {
-                          void loadQueue();
-                          void refreshPlaybackState();
-                        }}
-                      />
-                    </Suspense>
-                  ) : null}
-                </section>
-              ) : activePanel === "playlists" ? (
-                <section className="w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none">
-                  <div className="flex h-full min-h-0 items-center justify-center">
-                    <p className="text-muted-foreground text-sm">
-                      Only hosts can manage playlists.
-                    </p>
-                  </div>
-                </section>
-              ) : null}
+              <section
+                className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
+                  }`}
+              >
+                {hasOpenedPlaylists ? (
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full min-h-0 items-center justify-center">
+                        <p className="text-muted-foreground text-sm">
+                          Loading playlists…
+                        </p>
+                      </div>
+                    }
+                  >
+                    <HostYoutubePlaylists
+                      key={playlistsRefreshToken}
+                      roomId={roomId}
+                      queueAttributionLabel={localDisplayLabel}
+                      onQueueActivity={(msg) => void notifyRoomActivity(msg)}
+                      omitSectionChrome
+                      queuedVideoIds={queuedVideoIds}
+                      onRequestRefresh={() => setPlaylistsRefreshToken((n) => n + 1)}
+                      onImported={() => {
+                        void loadQueue();
+                        void refreshPlaybackState();
+                      }}
+                    />
+                  </Suspense>
+                ) : null}
+              </section>
             </div>
           </div>
         </div>
