@@ -38,6 +38,7 @@ import {
 } from "@/components/GuestListDialog";
 import { RoomProfileSettingsDialog } from "@/components/RoomProfileSettingsDialog";
 import { RoomSettingsDialog } from "@/components/RoomSettingsDialog";
+import { AvatarLightbox } from "@/components/AvatarLightbox";
 import {
   clearPartyRoomState,
   GUEST_VIDEO_PREF_KEY,
@@ -113,6 +114,53 @@ const PANEL_TABS = [
   { key: "chat", label: "Chat", icon: "chat" },
   { key: "playlists", label: "Playlists", icon: "playlists" },
 ] as const;
+
+function ChatAvatarButton({
+  avatarDataUrl,
+  label,
+  onEnlarge,
+}: {
+  avatarDataUrl: string | null;
+  label: string;
+  onEnlarge: (src: string, label: string) => void;
+}) {
+  const baseCls =
+    "border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border";
+  if (avatarDataUrl) {
+    return (
+      <button
+        type="button"
+        onClick={() => onEnlarge(avatarDataUrl, label)}
+        title={`View ${label}'s photo`}
+        aria-label={`View ${label}'s photo`}
+        className={`${baseCls} hover:brightness-110 focus-visible:ring-ring transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={avatarDataUrl}
+          alt={label}
+          className="size-full object-cover"
+          draggable={false}
+        />
+      </button>
+    );
+  }
+  return (
+    <span aria-hidden className={baseCls}>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        className="size-4 text-muted-foreground"
+        aria-hidden
+      >
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 19a7 7 0 0 1 14 0" />
+      </svg>
+    </span>
+  );
+}
 
 function VisibilityPill({
   isPublic,
@@ -323,6 +371,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false);
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
   const [roomIsPublic, setRoomIsPublic] = useState(false);
+  const [enlargedAvatar, setEnlargedAvatar] = useState<{
+    src: string;
+    label: string;
+  } | null>(null);
   const [profilePhotoDataUrl, setProfilePhotoDataUrl] = useState<string | null>(
     null
   );
@@ -2284,34 +2336,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                         return (
                           <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
                             {!mine ? (
-                              <button
-                                type="button"
-                                tabIndex={-1}
-                                aria-hidden
-                                className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
-                              >
-                                {msg.avatarDataUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={msg.avatarDataUrl}
-                                    alt={msg.senderLabel}
-                                    className="size-full object-cover"
-                                    draggable={false}
-                                  />
-                                ) : (
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden
-                                  >
-                                    <circle cx="12" cy="8" r="3.5" />
-                                    <path d="M5 19a7 7 0 0 1 14 0" />
-                                  </svg>
-                                )}
-                              </button>
+                              <ChatAvatarButton
+                                avatarDataUrl={msg.avatarDataUrl}
+                                label={msg.senderLabel}
+                                onEnlarge={(src, label) =>
+                                  setEnlargedAvatar({ src, label })
+                                }
+                              />
                             ) : null}
                             <div
                               className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
@@ -2322,34 +2353,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                               <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
                             </div>
                             {mine ? (
-                              <button
-                                type="button"
-                                tabIndex={-1}
-                                aria-hidden
-                                className="border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border"
-                              >
-                                {msg.avatarDataUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={msg.avatarDataUrl}
-                                    alt={msg.senderLabel}
-                                    className="size-full object-cover"
-                                    draggable={false}
-                                  />
-                                ) : (
-                                  <svg
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    className="size-4 text-muted-foreground"
-                                    aria-hidden
-                                  >
-                                    <circle cx="12" cy="8" r="3.5" />
-                                    <path d="M5 19a7 7 0 0 1 14 0" />
-                                  </svg>
-                                )}
-                              </button>
+                              <ChatAvatarButton
+                                avatarDataUrl={msg.avatarDataUrl}
+                                label={msg.senderLabel}
+                                onEnlarge={(src, label) =>
+                                  setEnlargedAvatar({ src, label })
+                                }
+                              />
                             ) : null}
                           </div>
                         );
@@ -2490,6 +2500,13 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         onOpenChange={setSettingsOpen}
         onSaved={handleProfileSaved}
       />
+      {enlargedAvatar ? (
+        <AvatarLightbox
+          src={enlargedAvatar.src}
+          label={enlargedAvatar.label}
+          onClose={() => setEnlargedAvatar(null)}
+        />
+      ) : null}
       {isHost && hostTokenForRpc ? (
         <RoomSettingsDialog
           open={roomSettingsOpen}
