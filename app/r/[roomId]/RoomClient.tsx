@@ -26,6 +26,14 @@ import {
 } from "@/components/YouTubeHostPlayer";
 import { SearchYouTube } from "@/components/SearchYouTube";
 import { HostYoutubePlaylists } from "@/components/HostYoutubePlaylists";
+import {
+  RoomChatPanel,
+  type ChatMessage as ChatPanelMessage,
+  type ChatPerson,
+} from "@/components/RoomChatPanel";
+import { RoomChatOverlay } from "@/components/RoomChatOverlay";
+import { QuickReactionRail } from "@/components/QuickReactionRail";
+import { RoomStage } from "@/components/RoomStage";
 import { GuestInviteDialog } from "@/components/GuestInviteDialog";
 import { AppBrandLockup } from "@/components/AppBrandLockup";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -115,53 +123,6 @@ const PANEL_TABS = [
   { key: "playlists", label: "Playlists", icon: "playlists" },
 ] as const;
 
-function ChatAvatarButton({
-  avatarDataUrl,
-  label,
-  onEnlarge,
-}: {
-  avatarDataUrl: string | null;
-  label: string;
-  onEnlarge: (src: string, label: string) => void;
-}) {
-  const baseCls =
-    "border-border bg-background inline-flex size-8 shrink-0 select-none items-center justify-center overflow-hidden rounded-full border";
-  if (avatarDataUrl) {
-    return (
-      <button
-        type="button"
-        onClick={() => onEnlarge(avatarDataUrl, label)}
-        title={`View ${label}'s photo`}
-        aria-label={`View ${label}'s photo`}
-        className={`${baseCls} hover:brightness-110 focus-visible:ring-ring transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background`}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={avatarDataUrl}
-          alt={label}
-          className="size-full object-cover"
-          draggable={false}
-        />
-      </button>
-    );
-  }
-  return (
-    <span aria-hidden className={baseCls}>
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        className="size-4 text-muted-foreground"
-        aria-hidden
-      >
-        <circle cx="12" cy="8" r="3.5" />
-        <path d="M5 19a7 7 0 0 1 14 0" />
-      </svg>
-    </span>
-  );
-}
-
 function VisibilityPill({
   isPublic,
   canEdit,
@@ -220,6 +181,11 @@ type RoomChatMessage = {
   text: string;
   createdAt: string;
   avatarDataUrl: string | null;
+  mentions?: string[];
+  gif?: string | null;
+  pinnedToSec?: number | null;
+  reactions?: Record<string, { userIds: string[] }>;
+  pending?: boolean;
 };
 
 type ReadyCheckState = {
@@ -348,12 +314,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   >(null);
   const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
   const [reactions, setReactions] = useState<RoomReaction[]>([]);
-  const [defaultReaction, setDefaultReaction] = useState("🔥");
-  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const [profileGateDone, setProfileGateDone] = useState(false);
   const [forceResyncToken, setForceResyncToken] = useState(0);
   const [readyCheck, setReadyCheck] = useState<ReadyCheckState | null>(null);
-  const [activePanel, setActivePanel] = useState<"now" | "search" | "playlists" | "chat">("now");
+  const [activePanel, setActivePanel] = useState<"now" | "search" | "playlists">("now");
+  const [chatOverlayOpen, setChatOverlayOpen] = useState(false);
+  const [chatHeadOffset, setChatHeadOffset] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const chatHeadDraggedRef = useRef(false);
+  const chatHeadBtnRef = useRef<HTMLButtonElement | null>(null);
   const [hasOpenedSearch, setHasOpenedSearch] = useState(false);
   const [hasOpenedPlaylists, setHasOpenedPlaylists] = useState(false);
   const [playlistsRefreshToken, setPlaylistsRefreshToken] = useState(0);
@@ -364,8 +335,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     Record<string, string>
   >({});
   const [chatMessages, setChatMessages] = useState<RoomChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
   const [unreadChatCount, setUnreadChatCount] = useState(0);
+  const [videoTimeSec, setVideoTimeSec] = useState(0);
+  const [videoDurationSec, setVideoDurationSec] = useState<number | null>(null);
+  const [typingByUserId, setTypingByUserId] = useState<
+    Record<string, { label: string; expiresAt: number }>
+  >({});
   const [chatToastMessage, setChatToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [roomSettingsOpen, setRoomSettingsOpen] = useState(false);
@@ -392,14 +367,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const prevJoinKeyRef = useRef<string>("");
   const guestListOpenRef = useRef(false);
   const reactionSeqRef = useRef(0);
-  /** Long-press opened the picker this gesture — pointer up must not fire a send. */
-  const reactionPickerOpenedByHoldRef = useRef(false);
-  const reactionLongPressTimerRef = useRef<number | null>(null);
   const readyCheckHandledRef = useRef<string | null>(null);
   const playbackReconcileTimerRef = useRef<number | null>(null);
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const chatInputRef = useRef<HTMLInputElement | null>(null);
-  const activePanelRef = useRef<"now" | "search" | "playlists" | "chat">("now");
+  const activePanelRef = useRef<"now" | "search" | "playlists">("now");
+  const chatOverlayOpenRef = useRef(false);
+  const typingBroadcastTimerRef = useRef<number | null>(null);
+  const typingLastSentAtRef = useRef(0);
 
   const router = useRouter();
   const hostTokenForRpc = hostToken ?? "";
@@ -431,6 +404,40 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     activePanelRef.current = activePanel;
   }, [activePanel]);
+
+  useEffect(() => {
+    chatOverlayOpenRef.current = chatOverlayOpen;
+  }, [chatOverlayOpen]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        const stored = window.localStorage.getItem("vibin.chatHeadOffset");
+        if (!stored) return;
+        const parsed = JSON.parse(stored) as unknown;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          typeof (parsed as { x?: unknown }).x === "number" &&
+          typeof (parsed as { y?: unknown }).y === "number"
+        ) {
+          setChatHeadOffset({
+            x: (parsed as { x: number }).x,
+            y: (parsed as { y: number }).y,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty("--vibin-chat-offset-x", `${chatHeadOffset.x}px`);
+    root.style.setProperty("--vibin-chat-offset-y", `${chatHeadOffset.y}px`);
+  }, [chatHeadOffset]);
 
   useEffect(() => {
     setProfilePhotoDataUrl(getDisplayAvatarDataUrl());
@@ -581,35 +588,123 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     setSyncToastMessage("Jumped to stay in sync");
   }, []);
 
-  const sendChatMessage = useCallback(async () => {
-    const text = chatInput.trim();
-    if (!text) return;
-    const senderLabel = localDisplayLabel.trim() || "Anonymous";
-    const senderUserId = currentUserIdRef.current ?? null;
-    const createdAt = new Date().toISOString();
-    const avatarDataUrl = profilePhotoDataUrl ?? null;
-    const localMsg: RoomChatMessage = {
-      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      senderUserId,
-      senderLabel,
-      text,
-      createdAt,
-      avatarDataUrl,
-    };
-    setChatMessages((prev) => [...prev, localMsg]);
-    setChatInput("");
-    const ch = roomChannelRef.current;
-    if (!ch) return;
-    try {
-      await ch.send({
+  const sendChatMessage = useCallback(
+    async (payload: {
+      text: string;
+      mentions: string[];
+      gif: string | null;
+      pinnedToSec: number | null;
+    }) => {
+      const text = payload.text.trim();
+      if (!text && !payload.gif) return;
+      const senderLabel = localDisplayLabel.trim() || "Anonymous";
+      const senderUserId = currentUserIdRef.current ?? null;
+      const createdAt = new Date().toISOString();
+      const avatarDataUrl = profilePhotoDataUrl ?? null;
+      const messageId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const localMsg: RoomChatMessage = {
+        id: messageId,
+        senderUserId,
+        senderLabel,
+        text,
+        createdAt,
+        avatarDataUrl,
+        mentions: payload.mentions,
+        gif: payload.gif ?? null,
+        pinnedToSec: payload.pinnedToSec,
+        reactions: {},
+      };
+      setChatMessages((prev) => [...prev, localMsg]);
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      try {
+        await ch.send({
+          type: "broadcast",
+          event: "room_chat_message",
+          payload: {
+            messageId,
+            text,
+            senderUserId,
+            senderLabel,
+            createdAt,
+            avatarDataUrl,
+            mentions: payload.mentions,
+            gif: payload.gif ?? null,
+            pinnedToSec: payload.pinnedToSec,
+          },
+        });
+      } catch (e) {
+        console.error("supabase broadcast room_chat_message:", e);
+      }
+    },
+    [localDisplayLabel, profilePhotoDataUrl]
+  );
+
+  const toggleMessageReaction = useCallback(
+    async (messageId: string, emoji: string) => {
+      const senderUserId = currentUserIdRef.current ?? null;
+      if (!senderUserId) return;
+      let nextMine = false;
+      setChatMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== messageId) return msg;
+          const reactions: Record<string, { userIds: string[] }> = {
+            ...(msg.reactions ?? {}),
+          };
+          const current = reactions[emoji]?.userIds ?? [];
+          const has = current.includes(senderUserId);
+          nextMine = !has;
+          const nextIds = has
+            ? current.filter((id) => id !== senderUserId)
+            : [...current, senderUserId];
+          if (nextIds.length === 0) {
+            delete reactions[emoji];
+          } else {
+            reactions[emoji] = { userIds: nextIds };
+          }
+          return { ...msg, reactions };
+        })
+      );
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      try {
+        await ch.send({
+          type: "broadcast",
+          event: "room_chat_reaction",
+          payload: {
+            messageId,
+            emoji,
+            senderUserId,
+            on: nextMine,
+          },
+        });
+      } catch (e) {
+        console.error("supabase broadcast room_chat_reaction:", e);
+      }
+    },
+    []
+  );
+
+  const broadcastTyping = useCallback(
+    (isTyping: boolean) => {
+      const ch = roomChannelRef.current;
+      if (!ch) return;
+      const now = Date.now();
+      if (isTyping && now - typingLastSentAtRef.current < 1200) return;
+      typingLastSentAtRef.current = now;
+      void ch.send({
         type: "broadcast",
-        event: "room_chat_message",
-        payload: { text, senderUserId, senderLabel, createdAt, avatarDataUrl },
+        event: "room_typing",
+        payload: {
+          senderUserId: currentUserIdRef.current,
+          senderLabel: localDisplayLabel.trim() || "Anonymous",
+          isTyping,
+        },
       });
-    } catch (e) {
-      console.error("supabase broadcast room_chat_message:", e);
-    }
-  }, [chatInput, localDisplayLabel, profilePhotoDataUrl]);
+    },
+    [localDisplayLabel]
+  );
+
 
   const notifyRoomActivity = useCallback(async (message: string) => {
     if (!shouldBroadcastActivity()) return;
@@ -682,47 +777,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       console.error("supabase broadcast room_reaction:", e);
     }
   }, [spawnReaction]);
-
-  const beginReactionPress = useCallback(() => {
-    reactionPickerOpenedByHoldRef.current = false;
-    if (reactionLongPressTimerRef.current != null) {
-      window.clearTimeout(reactionLongPressTimerRef.current);
-      reactionLongPressTimerRef.current = null;
-    }
-    reactionLongPressTimerRef.current = window.setTimeout(() => {
-      reactionLongPressTimerRef.current = null;
-      reactionPickerOpenedByHoldRef.current = true;
-      setReactionPickerOpen(true);
-    }, 480);
-  }, [setReactionPickerOpen]);
-
-  const endReactionPress = useCallback(() => {
-    if (reactionLongPressTimerRef.current != null) {
-      window.clearTimeout(reactionLongPressTimerRef.current);
-      reactionLongPressTimerRef.current = null;
-    }
-    if (reactionPickerOpenedByHoldRef.current) {
-      reactionPickerOpenedByHoldRef.current = false;
-      return;
-    }
-    void sendReaction(defaultReaction);
-  }, [defaultReaction, sendReaction]);
-
-  const cancelReactionPress = useCallback(() => {
-    if (reactionLongPressTimerRef.current != null) {
-      window.clearTimeout(reactionLongPressTimerRef.current);
-      reactionLongPressTimerRef.current = null;
-    }
-    reactionPickerOpenedByHoldRef.current = false;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (reactionLongPressTimerRef.current != null) {
-        window.clearTimeout(reactionLongPressTimerRef.current);
-      }
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (ready && hasCompletedDisplayProfile()) {
@@ -995,45 +1049,145 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         .on("broadcast", { event: "room_chat_message" }, (payload: unknown) => {
           const p = (payload as { payload?: unknown } | null | undefined)
             ?.payload as {
+              messageId?: unknown;
               text?: unknown;
               senderUserId?: unknown;
               senderLabel?: unknown;
               createdAt?: unknown;
               avatarDataUrl?: unknown;
+              mentions?: unknown;
+              gif?: unknown;
+              pinnedToSec?: unknown;
             } | undefined;
-          if (typeof p?.text !== "string" || p.text.trim().length === 0) return;
-          const messageText = p.text.trim();
+          const rawText = typeof p?.text === "string" ? p.text.trim() : "";
+          const gif =
+            typeof p?.gif === "string" && p.gif.length > 0 ? p.gif : null;
+          if (rawText.length === 0 && !gif) return;
           const senderUserId =
-            typeof p.senderUserId === "string" ? p.senderUserId : null;
+            typeof p?.senderUserId === "string" ? p.senderUserId : null;
           if (senderUserId && senderUserId === currentUserIdRef.current) return;
           const senderLabel =
-            typeof p.senderLabel === "string" && p.senderLabel.trim().length > 0
+            typeof p?.senderLabel === "string" && p.senderLabel.trim().length > 0
               ? p.senderLabel.trim()
               : "Anonymous";
           const createdAt =
-            typeof p.createdAt === "string" && !Number.isNaN(Date.parse(p.createdAt))
+            typeof p?.createdAt === "string" &&
+              !Number.isNaN(Date.parse(p.createdAt))
               ? p.createdAt
               : new Date().toISOString();
           const avatarDataUrl =
-            typeof p.avatarDataUrl === "string" &&
+            typeof p?.avatarDataUrl === "string" &&
               p.avatarDataUrl.startsWith("data:image/")
               ? p.avatarDataUrl
               : null;
-          setChatMessages((prev) => [
-            ...prev,
-            {
-              id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              senderUserId,
-              senderLabel,
-              text: messageText,
-              createdAt,
-              avatarDataUrl,
-            },
-          ]);
-          if (activePanelRef.current !== "chat") {
+          const mentions = Array.isArray(p?.mentions)
+            ? (p.mentions.filter(
+                (v) => typeof v === "string"
+              ) as string[])
+            : [];
+          const pinnedToSec =
+            typeof p?.pinnedToSec === "number" && Number.isFinite(p.pinnedToSec)
+              ? p.pinnedToSec
+              : null;
+          const id =
+            typeof p?.messageId === "string" && p.messageId.length > 0
+              ? p.messageId
+              : `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          setChatMessages((prev) => {
+            if (prev.some((m) => m.id === id)) return prev;
+            return [
+              ...prev,
+              {
+                id,
+                senderUserId,
+                senderLabel,
+                text: rawText,
+                createdAt,
+                avatarDataUrl,
+                mentions,
+                gif,
+                pinnedToSec,
+                reactions: {},
+              },
+            ];
+          });
+          if (!chatOverlayOpenRef.current) {
             setUnreadChatCount((n) => n + 1);
           }
-          setChatToastMessage(`${senderLabel}: ${messageText}`);
+          setChatToastMessage(
+            rawText.length > 0 ? `${senderLabel}: ${rawText}` : `${senderLabel} sent a GIF`
+          );
+        })
+        .on("broadcast", { event: "room_chat_reaction" }, (payload: unknown) => {
+          const p = (payload as { payload?: unknown } | null | undefined)
+            ?.payload as {
+              messageId?: unknown;
+              emoji?: unknown;
+              senderUserId?: unknown;
+              on?: unknown;
+            } | undefined;
+          if (
+            typeof p?.messageId !== "string" ||
+            typeof p.emoji !== "string" ||
+            typeof p.senderUserId !== "string"
+          ) {
+            return;
+          }
+          if (p.senderUserId === currentUserIdRef.current) return;
+          const on = p.on !== false;
+          setChatMessages((prev) =>
+            prev.map((msg) => {
+              if (msg.id !== p.messageId) return msg;
+              const reactions: Record<string, { userIds: string[] }> = {
+                ...(msg.reactions ?? {}),
+              };
+              const current = reactions[p.emoji as string]?.userIds ?? [];
+              const has = current.includes(p.senderUserId as string);
+              const nextIds = on
+                ? has
+                  ? current
+                  : [...current, p.senderUserId as string]
+                : current.filter((id) => id !== (p.senderUserId as string));
+              if (nextIds.length === 0) {
+                delete reactions[p.emoji as string];
+              } else {
+                reactions[p.emoji as string] = { userIds: nextIds };
+              }
+              return { ...msg, reactions };
+            })
+          );
+        })
+        .on("broadcast", { event: "room_typing" }, (payload: unknown) => {
+          const p = (payload as { payload?: unknown } | null | undefined)
+            ?.payload as {
+              senderUserId?: unknown;
+              senderLabel?: unknown;
+              isTyping?: unknown;
+            } | undefined;
+          const senderUserId =
+            typeof p?.senderUserId === "string" ? p.senderUserId : null;
+          if (!senderUserId) return;
+          if (senderUserId === currentUserIdRef.current) return;
+          const senderLabel =
+            typeof p?.senderLabel === "string" && p.senderLabel.trim().length > 0
+              ? p.senderLabel.trim()
+              : "Someone";
+          if (p?.isTyping === false) {
+            setTypingByUserId((prev) => {
+              if (!prev[senderUserId]) return prev;
+              const next = { ...prev };
+              delete next[senderUserId];
+              return next;
+            });
+            return;
+          }
+          setTypingByUserId((prev) => ({
+            ...prev,
+            [senderUserId]: {
+              label: senderLabel,
+              expiresAt: Date.now() + 4000,
+            },
+          }));
         })
         .on(
           "broadcast",
@@ -1420,6 +1574,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     [roomId, refreshPlaybackState]
   );
 
+  const jumpToSec = useCallback(
+    async (sec: number) => {
+      if (!isHost) return;
+      await reportIframeSeek(Math.max(0, sec));
+    },
+    [isHost, reportIframeSeek]
+  );
+
+  const togglePlayPause = useCallback(async () => {
+    if (!isHost) return;
+    const now = syncPlayerRef.current?.getCurrentTime?.() ?? playbackAnchorSec;
+    await reportIframePausePlay(!playbackPaused, now ?? 0);
+  }, [isHost, playbackPaused, playbackAnchorSec, reportIframePausePlay]);
+
   useEffect(() => {
     if (!ready || !isHost) return;
     if (!nowPlaying?.video_id || playbackPaused) return;
@@ -1439,6 +1607,45 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     }, 2500);
     return () => window.clearInterval(id);
   }, [ready, isHost, nowPlaying?.video_id, playbackPaused, roomId]);
+
+  useEffect(() => {
+    if (!ready || !nowPlaying?.video_id) {
+      setVideoTimeSec(0);
+      setVideoDurationSec(null);
+      return;
+    }
+    const id = window.setInterval(() => {
+      const t = syncPlayerRef.current?.getCurrentTime?.();
+      const d = syncPlayerRef.current?.getDuration?.();
+      if (typeof t === "number" && Number.isFinite(t)) setVideoTimeSec(t);
+      if (typeof d === "number" && Number.isFinite(d) && d > 0) {
+        setVideoDurationSec(d);
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [ready, nowPlaying?.video_id]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setTypingByUserId((prev) => {
+        const now = Date.now();
+        let changed = false;
+        const next: typeof prev = {};
+        for (const [uid, v] of Object.entries(prev)) {
+          if (v.expiresAt > now) next[uid] = v;
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }, 1500);
+    return () => {
+      window.clearInterval(id);
+      if (typingBroadcastTimerRef.current != null) {
+        window.clearTimeout(typingBroadcastTimerRef.current);
+        typingBroadcastTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleAdd = useCallback(
     async (item: YouTubeSearchItem): Promise<boolean> => {
@@ -1715,15 +1922,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, [activePanel]);
 
   useEffect(() => {
-    if (activePanel === "chat") {
+    if (chatOverlayOpen) {
       setUnreadChatCount(0);
-      requestAnimationFrame(() => {
-        const el = chatScrollRef.current;
-        if (!el) return;
-        el.scrollTop = el.scrollHeight;
-      });
     }
-  }, [activePanel, chatMessages.length]);
+  }, [chatOverlayOpen, chatMessages.length]);
 
   useEffect(() => {
     setUpcomingRenderCount(UPCOMING_QUEUE_INITIAL_RENDER);
@@ -1862,6 +2064,52 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const playbackBusy = queueJumpBusy;
   const peopleWatchingCount = Math.max(1, guestCount + 1);
   const localParticipantId = getParticipantId();
+
+  const chatPeople: ChatPerson[] = (() => {
+    const list: ChatPerson[] = [];
+    const selfId = currentUserIdRef.current ?? sessionUserId ?? "self";
+    list.push({
+      id: selfId,
+      name: localDisplayLabel || "You",
+      letter: (localDisplayLabel || "?").trim().charAt(0).toUpperCase() || "?",
+      avatarDataUrl: profilePhotoDataUrl,
+      isHost,
+      online: true,
+    });
+    for (const g of guestRoster) {
+      if (g.userId === selfId) continue;
+      list.push({
+        id: g.userId,
+        name: g.label,
+        letter: (g.label || "?").trim().charAt(0).toUpperCase() || "?",
+        online: Date.now() - Date.parse(g.lastSeenAt) < 75_000,
+      });
+    }
+    return list;
+  })();
+
+  const chatPanelMessages: ChatPanelMessage[] = chatMessages.map((m) => ({
+    id: m.id,
+    authorId: m.senderUserId,
+    authorLabel: m.senderLabel,
+    text: m.text,
+    createdAtIso: m.createdAt,
+    avatarDataUrl: m.avatarDataUrl,
+    mentions: m.mentions,
+    gif: m.gif ?? null,
+    pinnedToSec: m.pinnedToSec ?? null,
+    reactions: m.reactions,
+    pending: m.pending,
+  }));
+
+  const typingLabels = Object.values(typingByUserId)
+    .filter((v) => v.expiresAt > Date.now())
+    .map((v) => v.label);
+
+  const handleTyping = (isTyping: boolean) => {
+    broadcastTyping(isTyping);
+  };
+
   const readyCount = readyCheck?.readyUserIds.length ?? 0;
   const readyTotal = readyCheck?.requiredCount ?? 0;
   const isReadyCheckInitiator =
@@ -2068,10 +2316,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           <div className="order-1 flex min-h-0 w-full shrink-0 flex-col items-center min-[708px]:order-2 min-[708px]:min-w-0 min-[708px]:flex-1 min-[708px]:items-stretch min-[708px]:pt-0.5">
             <div className="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col items-center justify-start gap-3 transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] min-[708px]:mt-0 min-[708px]:max-w-none">
               {isHost || guestShowSyncedVideo ? (
-                <>
-                  <div
-                    ref={videoFrameRef}
-                    className="relative min-w-0 max-w-[100vw] self-stretch -mx-2 w-[calc(100%+1rem)] sm:mx-0 sm:w-full sm:max-w-none"
+                <div
+                  ref={videoFrameRef}
+                  className="relative min-w-0 max-w-[100vw] self-stretch -mx-2 w-[calc(100%+1rem)] sm:mx-0 sm:w-full sm:max-w-none"
+                >
+                  <RoomStage
+                    watchers={peopleWatchingCount}
+                    progressSec={videoTimeSec}
+                    durationSec={videoDurationSec}
+                    nowPlayingTitle={nowPlaying?.title ?? null}
+                    nowPlayingAddedBy={nowPlaying?.added_by ?? null}
+                    isPlaying={!playbackPaused && hasNowPlaying}
+                    canPrev={canPrev && !playbackBusy}
+                    canNext={hasNowPlaying && !playbackBusy}
+                    onPrev={() => void goPrevious()}
+                    onNext={() => void goNext()}
+                    onTogglePlay={() => void togglePlayPause()}
+                    controlsDisabled={!isHost}
                   >
                     <YouTubeSyncPlayer
                       ref={syncPlayerRef}
@@ -2087,49 +2348,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                       onAutoResync={handleAutoResyncNotice}
                       forceResyncToken={forceResyncToken}
                     />
-                  </div>
-                  <div className="-mt-13 mr-3 z-20 self-end">
-                    <div className="relative flex items-end justify-end">
-                      {reactionPickerOpen ? (
-                        <div className="border-border/70 bg-background/94 supports-[backdrop-filter]:bg-background/86 absolute bottom-full right-0 mb-2 inline-flex items-center gap-1 rounded-full border px-1 py-1 shadow-lg shadow-black/20 backdrop-blur">
-                          {["🔥", "👏", "😂", "❤️", "🎉", "🤯"].map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              onClick={() => {
-                                setDefaultReaction(emoji);
-                                setReactionPickerOpen(false);
-                              }}
-                              className={`hover:bg-muted focus-visible:ring-ring inline-flex min-h-9 min-w-9 items-center justify-center rounded-full text-lg transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${defaultReaction === emoji ? "bg-primary/15" : ""}`}
-                              aria-label={`Set default reaction ${emoji}`}
-                              title={`Set ${emoji} as default`}
-                            >
-                              {emoji}
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        onPointerDown={beginReactionPress}
-                        onPointerUp={endReactionPress}
-                        onPointerCancel={cancelReactionPress}
-                        onPointerLeave={cancelReactionPress}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setReactionPickerOpen(true);
-                        }}
-                        className="border-border/70 bg-background/92 supports-[backdrop-filter]:bg-background/82 hover:bg-card inline-flex min-h-11 min-w-11 select-none touch-manipulation items-center justify-center rounded-full border text-xl shadow-lg shadow-black/20 backdrop-blur transition-colors [-webkit-touch-callout:none] [-webkit-user-select:none] [user-select:none]"
-                        aria-label={`Send reaction ${defaultReaction}. Hold to change emoji.`}
-                        title="Tap to send · hold to change emoji"
-                      >
-                        <span className="pointer-events-none select-none" aria-hidden>
-                          {defaultReaction}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </>
+                  </RoomStage>
+                </div>
               ) : (
                 <button
                   type="button"
@@ -2147,12 +2367,18 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               aria-label="Room panels"
             >
               {PANEL_TABS.map((tab) => {
-                const active = activePanel === tab.key;
+                const active = tab.key === "chat" ? chatOverlayOpen : activePanel === tab.key;
                 return (
                   <button
                     key={tab.key}
                     type="button"
-                    onClick={() => setActivePanel(tab.key)}
+                    onClick={() => {
+                      if (tab.key === "chat") {
+                        setChatOverlayOpen((v) => !v);
+                      } else {
+                        setActivePanel(tab.key);
+                      }
+                    }}
                     className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all duration-200 sm:min-h-10 sm:gap-2 sm:px-2.5 sm:text-xs ${active ? "bg-primary text-primary-foreground shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
                     aria-pressed={active}
                     aria-label={tab.label}
@@ -2172,33 +2398,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               })}
             </nav>
             <div className="flex min-h-0 flex-1 flex-col items-stretch gap-3 overflow-y-auto [-webkit-overflow-scrolling:touch] min-[708px]:min-h-[min(70vh,40rem)]">
-              {activePanel === "now" ? (
-                <>
-                  <div className="mx-auto flex w-full max-w-2xl items-center gap-2 rounded-xl border border-border/70 bg-card/65 px-2.5 py-2 shadow-sm sm:gap-3 sm:rounded-2xl sm:px-3 sm:py-2.5 min-[708px]:max-w-none">
-                    {nowPlaying?.thumb_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={nowPlaying.thumb_url}
-                        alt={nowPlaying.title}
-                        width={72}
-                        height={72}
-                        className="h-11 w-11 shrink-0 rounded-lg object-cover shadow-md shadow-black/30 sm:h-16 sm:w-16 sm:rounded-xl"
-                      />
-                    ) : (
-                      <div className="bg-card h-11 w-11 shrink-0 rounded-lg border border-border/70 sm:h-16 sm:w-16 sm:rounded-xl" />
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-display line-clamp-1 text-left text-base font-bold leading-tight sm:line-clamp-2 sm:text-[1.35rem]">
-                        {nowPlaying?.title ?? "Nothing playing"}
-                      </p>
-                      <div className="mt-1.5 grid max-w-sm grid-cols-2 gap-2 sm:mt-2 sm:gap-2.5">
-                        <button type="button" onClick={() => void goPrevious()} disabled={!canPrev || playbackBusy} className="border-border bg-card/80 hover:bg-card min-h-9 rounded-lg border text-xs font-bold transition-colors disabled:opacity-45 sm:min-h-10 sm:rounded-xl sm:text-sm">Prev</button>
-                        <button type="button" onClick={() => void goNext()} disabled={playbackBusy || !hasNowPlaying} className="bg-primary text-primary-foreground hover:brightness-105 min-h-9 rounded-lg text-xs font-bold transition-[filter] disabled:opacity-45 sm:min-h-10 sm:rounded-xl sm:text-sm">Next</button>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              ) : null}
               {activePanel === "now" ? (
                 <section className="w-full max-w-2xl min-h-0 flex-1 rounded-xl border border-border/70 bg-card/60 px-2.5 py-2.5 sm:rounded-2xl sm:px-3 sm:py-3 min-[708px]:max-w-none">
                   <div className="flex items-center justify-between gap-3">
@@ -2303,105 +2502,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 ) : null}
               </section>
               <section
-                className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 py-3 min-[708px]:max-w-none ${activePanel === "chat" ? "" : "hidden"
-                  }`}
-              >
-                <div className="flex h-full min-h-0 flex-col">
-                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-border/60 pb-2">
-                    <p className="text-foreground text-sm font-semibold">Chat</p>
-                    <button
-                      type="button"
-                      onClick={() => setGuestListOpen(true)}
-                      className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 text-xs text-muted-foreground transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      title={isHost ? "Guest list — remove people from the room" : "Who is in the room"}
-                      aria-label={isHost ? "Open guest list" : "Who is watching"}
-                    >
-                      <span className="inline-block size-1.5 rounded-full bg-emerald-400" aria-hidden />
-                      <span className="font-semibold">{peopleWatchingCount}</span>
-                      <span>watching</span>
-                    </button>
-                  </div>
-                  <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                    {chatMessages.length === 0 ? (
-                      <div className="flex h-full min-h-0 items-center justify-center">
-                        <p className="text-muted-foreground text-sm">
-                          Chat is quiet. Drop the first message.
-                        </p>
-                      </div>
-                    ) : (
-                      chatMessages.map((msg) => {
-                        const mine =
-                          msg.senderUserId != null &&
-                          msg.senderUserId === currentUserIdRef.current;
-                        return (
-                          <div key={msg.id} className={`flex items-start gap-2 ${mine ? "justify-end" : ""}`}>
-                            {!mine ? (
-                              <ChatAvatarButton
-                                avatarDataUrl={msg.avatarDataUrl}
-                                label={msg.senderLabel}
-                                onEnlarge={(src, label) =>
-                                  setEnlargedAvatar({ src, label })
-                                }
-                              />
-                            ) : null}
-                            <div
-                              className={`rounded-xl px-3 py-2 text-sm ${mine ? "ml-8 bg-primary/15" : "mr-8 bg-background/70 border border-border/60"}`}
-                            >
-                              <p className="text-[11px] font-semibold text-muted-foreground">
-                                {msg.senderLabel}
-                              </p>
-                              <p className="text-foreground mt-0.5 break-words">{msg.text}</p>
-                            </div>
-                            {mine ? (
-                              <ChatAvatarButton
-                                avatarDataUrl={msg.avatarDataUrl}
-                                label={msg.senderLabel}
-                                onEnlarge={(src, label) =>
-                                  setEnlargedAvatar({ src, label })
-                                }
-                              />
-                            ) : null}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      ref={chatInputRef}
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      onFocus={() => {
-                        requestAnimationFrame(() => {
-                          chatInputRef.current?.scrollIntoView({
-                            block: "nearest",
-                            inline: "nearest",
-                          });
-                        });
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          void sendChatMessage();
-                        }
-                      }}
-                      placeholder="Type a message..."
-                      maxLength={240}
-                      enterKeyHint="send"
-                      className="border-border bg-background/70 text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-10 flex-1 rounded-xl border px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void sendChatMessage()}
-                      disabled={chatInput.trim().length === 0}
-                      className="bg-primary text-primary-foreground hover:brightness-105 inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-semibold transition-[filter] disabled:opacity-45"
-                    >
-                      Send
-                    </button>
-                  </div>
-                </div>
-              </section>
-              <section
                 className={`w-full max-w-2xl min-h-0 flex-1 rounded-2xl border border-border/70 bg-card/60 px-3 pt-3 pb-0 min-[708px]:max-w-none ${activePanel === "playlists" ? "" : "hidden"
                   }`}
               >
@@ -2442,7 +2542,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         aria-hidden={keyboardOpen}
       >
         <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border/75 bg-background/92 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
-          {PANEL_TABS.map((tab) => {
+          {PANEL_TABS.filter((t) => t.key !== "chat").map((tab) => {
             const active = activePanel === tab.key;
             return (
               <button
@@ -2453,20 +2553,148 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 aria-label={tab.label}
                 title={tab.label}
               >
-                <span className="relative inline-flex">
-                  <TabIcon name={tab.icon} active={active} />
-                  {tab.key === "chat" && unreadChatCount > 0 ? (
-                    <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
-                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
-                    </span>
-                  ) : null}
-                </span>
+                <TabIcon name={tab.icon} active={active} />
                 <span className="text-xs tracking-tight">{tab.label}</span>
               </button>
             );
           })}
         </div>
       </div>
+
+      {!chatOverlayOpen && !keyboardOpen ? (
+        <QuickReactionRail onReact={(emoji) => void sendReaction(emoji)} />
+      ) : null}
+
+      {!chatOverlayOpen && !keyboardOpen ? (
+        <button
+          ref={chatHeadBtnRef}
+          type="button"
+          onClick={() => {
+            if (chatHeadDraggedRef.current) {
+              chatHeadDraggedRef.current = false;
+              return;
+            }
+            setChatOverlayOpen(true);
+          }}
+          onPointerDown={(e) => {
+            if (e.pointerType === "mouse" && e.button !== 0) return;
+            const startClientX = e.clientX;
+            const startClientY = e.clientY;
+            const start = { ...chatHeadOffset };
+            let moved = false;
+            const root = document.documentElement;
+            const onMove = (ev: PointerEvent) => {
+              const dx = ev.clientX - startClientX;
+              const dy = ev.clientY - startClientY;
+              if (!moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+                moved = true;
+              }
+              if (!moved) return;
+              root.style.setProperty(
+                "--vibin-chat-offset-x",
+                `${start.x + dx}px`,
+              );
+              root.style.setProperty(
+                "--vibin-chat-offset-y",
+                `${start.y + dy}px`,
+              );
+            };
+            const onUp = (ev: PointerEvent) => {
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
+              if (!moved) return;
+              chatHeadDraggedRef.current = true;
+              const dx = ev.clientX - startClientX;
+              const dy = ev.clientY - startClientY;
+              let finalX = start.x + dx;
+              let finalY = start.y + dy;
+              const btn = chatHeadBtnRef.current;
+              if (btn) {
+                const rect = btn.getBoundingClientRect();
+                const margin = 8;
+                const railSpace = 64;
+                if (rect.left < margin) finalX += margin - rect.left;
+                if (rect.right > window.innerWidth - margin) {
+                  finalX -= rect.right - (window.innerWidth - margin);
+                }
+                if (rect.top - railSpace < margin) {
+                  finalY -= margin + railSpace - rect.top;
+                }
+                if (rect.bottom > window.innerHeight - margin) {
+                  finalY -= rect.bottom - (window.innerHeight - margin);
+                }
+              }
+              const next = { x: finalX, y: finalY };
+              setChatHeadOffset(next);
+              try {
+                window.localStorage.setItem(
+                  "vibin.chatHeadOffset",
+                  JSON.stringify(next),
+                );
+              } catch {
+                /* ignore */
+              }
+            };
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
+          }}
+          aria-label="Open chat"
+          className="vibin-chat-head focus-visible:ring-ring focus-visible:ring-offset-background fixed z-[60] grid size-14 cursor-grab touch-none place-items-center rounded-full border-0 text-primary-foreground shadow-[0_14px_32px_-10px_rgba(0,0,0,0.55)] transition-transform hover:-translate-y-0.5 hover:scale-[1.04] focus-visible:ring-2 focus-visible:ring-offset-2 active:cursor-grabbing"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--primary), var(--accent))",
+          }}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-6"
+            aria-hidden
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          {unreadChatCount > 0 ? (
+            <span
+              className="bg-destructive text-destructive-foreground absolute -right-1 -top-1 grid min-w-5 h-5 place-items-center rounded-full px-1 text-[11px] font-bold shadow-sm"
+              style={{ border: "2px solid var(--bg-shell)" }}
+            >
+              {unreadChatCount > 99 ? "99+" : unreadChatCount}
+            </span>
+          ) : null}
+        </button>
+      ) : null}
+
+      <RoomChatOverlay
+        open={chatOverlayOpen}
+        anchorRef={videoFrameRef}
+        onDismiss={() => setChatOverlayOpen(false)}
+      >
+        <RoomChatPanel
+          mobile
+          people={chatPeople}
+          messages={chatPanelMessages}
+          currentUserId={currentUserIdRef.current ?? sessionUserId}
+          currentUserLabel={localDisplayLabel}
+          typingLabels={typingLabels}
+          videoTime={videoTimeSec}
+          presenceCount={peopleWatchingCount}
+          onSend={(payload) => void sendChatMessage(payload)}
+          onToggleReaction={(messageId, emoji) =>
+            void toggleMessageReaction(messageId, emoji)
+          }
+          onJumpTo={isHost ? (sec) => void jumpToSec(sec) : undefined}
+          onQuickReaction={(emoji) => void sendReaction(emoji)}
+          onTyping={handleTyping}
+          onClose={() => setChatOverlayOpen(false)}
+          onOpenPresence={() => setGuestListOpen(true)}
+        />
+      </RoomChatOverlay>
 
       {isHost ? (
         <ConfirmDialog
@@ -2567,6 +2795,40 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         .vibin-reaction-float {
           animation: vibin-reaction-float 2.1s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
           will-change: transform, opacity;
+        }
+        .vibin-chat-head {
+          right: calc(max(1rem, env(safe-area-inset-right)) - var(--vibin-chat-offset-x, 0px));
+          bottom: calc(var(--vibin-keyboard-inset, 0px) + max(5.75rem, calc(env(safe-area-inset-bottom) + 5.25rem)) - var(--vibin-chat-offset-y, 0px));
+          animation: vibin-chat-head-pop 280ms cubic-bezier(0.22, 1.2, 0.36, 1);
+        }
+        .vibin-react-rail {
+          right: calc(max(1rem, env(safe-area-inset-right)) - var(--vibin-chat-offset-x, 0px));
+          bottom: calc(var(--vibin-keyboard-inset, 0px) + max(5.75rem, calc(env(safe-area-inset-bottom) + 5.25rem)) + 4rem - var(--vibin-chat-offset-y, 0px));
+          animation: vibin-chat-head-pop 280ms cubic-bezier(0.22, 1.2, 0.36, 1);
+        }
+        @keyframes vibin-chat-head-pop {
+          0% {
+            transform: translateY(8px) scale(0.7);
+            opacity: 0;
+          }
+          100% {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+          }
+        }
+        @media (min-width: 708px) {
+          .vibin-chat-head {
+            bottom: calc(var(--vibin-keyboard-inset, 0px) + 1.25rem - var(--vibin-chat-offset-y, 0px));
+          }
+          .vibin-react-rail {
+            bottom: calc(var(--vibin-keyboard-inset, 0px) + 1.25rem + 4rem - var(--vibin-chat-offset-y, 0px));
+          }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .vibin-chat-head,
+          .vibin-react-rail {
+            animation: none;
+          }
         }
       `}</style>
     </main>

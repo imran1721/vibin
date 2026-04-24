@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Bricolage_Grotesque, DM_Sans } from "next/font/google";
 import { AnalyticsSession } from "@/components/AnalyticsSession";
+import { AppShell } from "@/components/AppShell";
 import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistration";
 import { SplashScreen } from "@/components/SplashScreen";
+import { ThemeProvider, THEME_INIT_SCRIPT } from "@/components/ThemeProvider";
 import { getSiteUrl } from "@/lib/site-url";
 import "./globals.css";
 
@@ -98,10 +100,17 @@ export default function RootLayout({
       lang="en"
       className={`${dmSans.variable} ${bricolage.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="bg-background text-foreground min-h-full flex flex-col font-sans">
-        <AnalyticsSession />
-        <ServiceWorkerRegistration />
-        <SplashScreen>{children}</SplashScreen>
+        <ThemeProvider>
+          <AnalyticsSession />
+          <ServiceWorkerRegistration />
+          <SplashScreen>
+            <AppShell>{children}</AppShell>
+          </SplashScreen>
+        </ThemeProvider>
       </body>
     </html>
   );

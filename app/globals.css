@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
-/* Warm “listening party” palette — tinted neutrals, coral primary, teal info accent */
+/* =========================================================================
+   Vibin design tokens — warm listening-party palette.
+   Light is the default. Dark is opt-in via `<html data-theme="dark">` or
+   system `prefers-color-scheme: dark` when no explicit choice is saved.
+   ========================================================================= */
+
 :root {
   --background: oklch(0.985 0.009 82);
   --foreground: oklch(0.24 0.045 270);
@@ -18,26 +23,77 @@
   --destructive-foreground: oklch(0.99 0.01 95);
   --success: oklch(0.55 0.14 155);
   --surface-elevated: oklch(1 0.004 82);
+  --bg-shell: oklch(0.97 0.012 82);
+  --brand-shell: oklch(0.92 0.02 82);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
+  --radius-3xl: 28px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 10px 30px -12px rgba(0, 0, 0, 0.2);
+  --shadow-2xl: 0 30px 60px -20px rgba(0, 0, 0, 0.35);
+
+  /* Easing */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* Dark via explicit user choice (`<html data-theme="dark">`). */
+:root[data-theme="dark"] {
+  --background: oklch(0.15 0.028 28);
+  --foreground: oklch(0.96 0.014 85);
+  --primary: oklch(0.72 0.17 38);
+  --primary-foreground: oklch(0.16 0.03 28);
+  --muted: oklch(0.22 0.028 28);
+  --muted-foreground: oklch(0.68 0.03 85);
+  --card: oklch(0.195 0.028 28);
+  --card-foreground: var(--foreground);
+  --border: oklch(0.31 0.035 28);
+  --ring: oklch(0.72 0.17 38);
+  --accent: oklch(0.72 0.11 195);
+  --accent-foreground: oklch(0.16 0.04 28);
+  --destructive: oklch(0.6 0.2 22);
+  --destructive-foreground: oklch(0.99 0.01 95);
+  --success: oklch(0.62 0.14 155);
+  --surface-elevated: oklch(0.22 0.03 28);
+  --bg-shell: oklch(0.13 0.025 28);
+  --brand-shell: oklch(0.105 0.02 28);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+  --shadow-2xl: 0 30px 60px -20px rgba(0, 0, 0, 0.6);
+}
+
+/* Dark via system, only if user hasn't picked light explicitly. */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: oklch(0.17 0.03 28);
-    --foreground: oklch(0.95 0.018 85);
-    --primary: oklch(0.74 0.15 45);
-    --primary-foreground: oklch(0.18 0.035 28);
-    --muted: oklch(0.25 0.028 28);
-    --muted-foreground: oklch(0.7 0.04 85);
-    --card: oklch(0.21 0.028 28);
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    --background: oklch(0.15 0.028 28);
+    --foreground: oklch(0.96 0.014 85);
+    --primary: oklch(0.72 0.17 38);
+    --primary-foreground: oklch(0.16 0.03 28);
+    --muted: oklch(0.22 0.028 28);
+    --muted-foreground: oklch(0.68 0.03 85);
+    --card: oklch(0.195 0.028 28);
     --card-foreground: var(--foreground);
-    --border: oklch(0.34 0.038 28);
-    --ring: oklch(0.74 0.15 45);
-    --accent: oklch(0.68 0.11 200);
+    --border: oklch(0.31 0.035 28);
+    --ring: oklch(0.72 0.17 38);
+    --accent: oklch(0.72 0.11 195);
     --accent-foreground: oklch(0.16 0.04 28);
     --destructive: oklch(0.6 0.2 22);
     --destructive-foreground: oklch(0.99 0.01 95);
     --success: oklch(0.62 0.14 155);
-    --surface-elevated: oklch(0.24 0.03 28);
+    --surface-elevated: oklch(0.22 0.03 28);
+    --bg-shell: oklch(0.13 0.025 28);
+    --brand-shell: oklch(0.105 0.02 28);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+    --shadow-2xl: 0 30px 60px -20px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -58,7 +114,11 @@
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
   --color-surface-elevated: var(--surface-elevated);
+  --color-bg-shell: var(--bg-shell);
+  --color-brand-shell: var(--brand-shell);
   --font-sans: var(--font-dm), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-bricolage), var(--font-dm), ui-sans-serif,
+    system-ui, sans-serif;
 }
 
 @utility font-display {
@@ -68,6 +128,9 @@
 
 html {
   scroll-behavior: smooth;
+  /* CSS var proxy for JS reads */
+  --font-display: var(--font-bricolage), var(--font-dm), ui-sans-serif,
+    system-ui, sans-serif;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -103,71 +166,41 @@ body {
     var(--background);
 }
 
-/* Join room — loader ring, logo float, equalizer bars */
+/* When the home is inside AppShell, the shell supplies the background —
+   keep the wash local to the hero area, not the whole viewport. */
+.vibin-page-bg:has(~ nav),
+body:has(aside.vibin-rail) .vibin-page-bg {
+  background: transparent;
+}
+
+/* =========================================================================
+   Keyframes — used by Stage, HeroScene, Sparkles, ticker, chat, etc.
+   ========================================================================= */
+
 @keyframes vibin-join-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
-
 @keyframes vibin-join-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
-
 @keyframes vibin-join-bar {
-  0%,
-  100% {
-    transform: scaleY(0.28);
-    opacity: 0.55;
-  }
-  50% {
-    transform: scaleY(1);
-    opacity: 1;
-  }
+  0%, 100% { transform: scaleY(0.28); opacity: 0.55; }
+  50% { transform: scaleY(1); opacity: 1; }
 }
-
 @keyframes vibin-join-shimmer {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
-
 @keyframes vibin-join-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.vibin-join-loader-root {
-  animation: vibin-join-enter 0.45s ease-out both;
-}
-
-.vibin-join-ring {
-  animation: vibin-join-spin 1.35s linear infinite;
-}
-
-.vibin-join-ring-slow {
-  animation: vibin-join-spin 2.4s linear infinite reverse;
-}
-
-.vibin-join-mark-wrap {
-  animation: vibin-join-float 2.2s ease-in-out infinite;
-}
+.vibin-join-loader-root { animation: vibin-join-enter 0.45s ease-out both; }
+.vibin-join-ring { animation: vibin-join-spin 1.35s linear infinite; }
+.vibin-join-ring-slow { animation: vibin-join-spin 2.4s linear infinite reverse; }
+.vibin-join-mark-wrap { animation: vibin-join-float 2.2s ease-in-out infinite; }
 
 .vibin-join-bar {
   height: 2.25rem;
@@ -181,154 +214,216 @@ body {
   );
   animation: vibin-join-bar 0.75s ease-in-out infinite;
 }
+.vibin-join-bar:nth-child(1) { animation-delay: 0ms; }
+.vibin-join-bar:nth-child(2) { animation-delay: 90ms; }
+.vibin-join-bar:nth-child(3) { animation-delay: 180ms; }
+.vibin-join-bar:nth-child(4) { animation-delay: 270ms; }
+.vibin-join-bar:nth-child(5) { animation-delay: 360ms; }
 
-.vibin-join-bar:nth-child(1) {
-  animation-delay: 0ms;
-}
-.vibin-join-bar:nth-child(2) {
-  animation-delay: 90ms;
-}
-.vibin-join-bar:nth-child(3) {
-  animation-delay: 180ms;
-}
-.vibin-join-bar:nth-child(4) {
-  animation-delay: 270ms;
-}
-.vibin-join-bar:nth-child(5) {
-  animation-delay: 360ms;
-}
-
-.vibin-join-caption {
-  animation: vibin-join-shimmer 1.8s ease-in-out infinite;
-}
+.vibin-join-caption { animation: vibin-join-shimmer 1.8s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
-  .vibin-join-loader-root {
-    animation: none;
-    opacity: 1;
-    transform: none;
-  }
-  .vibin-join-ring,
-  .vibin-join-ring-slow {
-    animation: none;
-  }
-  .vibin-join-mark-wrap {
-    animation: none;
-  }
-  .vibin-join-bar {
-    animation: none;
-    transform: scaleY(0.65);
-    opacity: 0.85;
-  }
-  .vibin-join-caption {
-    animation: none;
-    opacity: 0.9;
-  }
+  .vibin-join-loader-root { animation: none; opacity: 1; transform: none; }
+  .vibin-join-ring, .vibin-join-ring-slow { animation: none; }
+  .vibin-join-mark-wrap { animation: none; }
+  .vibin-join-bar { animation: none; transform: scaleY(0.65); opacity: 0.85; }
+  .vibin-join-caption { animation: none; opacity: 0.9; }
 }
 
-/* Room — “now playing” strip when queue section collapses */
+/* Room — now-playing collapsible strip */
 @keyframes vibin-collapsible-strip-in {
-  from {
-    opacity: 0;
-    transform: translateY(-6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
 .vibin-collapsible-strip-in {
-  animation: vibin-collapsible-strip-in 0.28s cubic-bezier(0.33, 1, 0.68, 1)
-    both;
+  animation: vibin-collapsible-strip-in 0.28s cubic-bezier(0.33, 1, 0.68, 1) both;
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .vibin-collapsible-strip-in {
-    animation: none;
-  }
+  .vibin-collapsible-strip-in { animation: none; }
 }
 
-/* Launch splash — soft motion + progress line */
+/* Launch splash */
 @keyframes vibin-splash-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
-
-
 @keyframes vibin-splash-progress-fill {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
-
-.vibin-splash-mark-wrap {
-  animation: vibin-splash-float 3.2s ease-in-out infinite;
-}
-
+.vibin-splash-mark-wrap { animation: vibin-splash-float 3.2s ease-in-out infinite; }
 .vibin-splash-progress {
   transform: scaleX(0);
   transform-origin: left center;
-  animation: vibin-splash-progress-fill 1.05s cubic-bezier(0.22, 1, 0.36, 1)
-    forwards;
+  animation: vibin-splash-progress-fill 1.05s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .vibin-splash-mark-wrap {
-    animation: none;
-  }
-
-  .vibin-splash-progress {
-    animation: none;
-    transform: scaleX(1);
-    opacity: 0.45;
-  }
+  .vibin-splash-mark-wrap { animation: none; }
+  .vibin-splash-progress { animation: none; transform: scaleX(1); opacity: 0.45; }
 }
 
-/* Animated mark — equalizer bars (transform-only, compositor-friendly) */
+/* Equalizer mark */
 @keyframes vibin-eq-mark-bar {
-  0%,
-  100% {
-    transform: scaleY(0.68);
-    opacity: 0.82;
-  }
-  50% {
-    transform: scaleY(1);
-    opacity: 1;
-  }
+  0%, 100% { transform: scaleY(0.68); opacity: 0.82; }
+  50% { transform: scaleY(1); opacity: 1; }
 }
-
 .vibin-eq-mark .vibin-eq-bar {
   transform-origin: center bottom;
   transform-box: fill-box;
   animation: vibin-eq-mark-bar 1.25s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
-
-.vibin-eq-mark .vibin-eq-bar-1 {
-  animation-delay: 0ms;
-}
-
-.vibin-eq-mark .vibin-eq-bar-2 {
-  animation-delay: 140ms;
-}
-
-.vibin-eq-mark .vibin-eq-bar-3 {
-  animation-delay: 280ms;
-}
-
+.vibin-eq-mark .vibin-eq-bar-1 { animation-delay: 0ms; }
+.vibin-eq-mark .vibin-eq-bar-2 { animation-delay: 140ms; }
+.vibin-eq-mark .vibin-eq-bar-3 { animation-delay: 280ms; }
 @media (prefers-reduced-motion: reduce) {
-  .vibin-eq-mark .vibin-eq-bar {
-    animation: none;
-    transform: scaleY(0.82);
-    opacity: 0.95;
+  .vibin-eq-mark .vibin-eq-bar { animation: none; transform: scaleY(0.82); opacity: 0.95; }
+}
+
+/* Signature equalizer loader (Eq component) */
+.vibin-eq {
+  display: inline-flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 38px;
+}
+.vibin-eq .vibin-eq-bar-load {
+  width: 5px;
+  height: 38px;
+  border-radius: 9999px;
+  transform-origin: center bottom;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklch, var(--primary) 88%, transparent),
+    color-mix(in oklch, var(--accent) 70%, transparent)
+  );
+  animation: vibin-join-bar 0.75s ease-in-out infinite;
+}
+.vibin-eq .vibin-eq-bar-load:nth-child(1) { animation-delay: 0ms; }
+.vibin-eq .vibin-eq-bar-load:nth-child(2) { animation-delay: 90ms; }
+.vibin-eq .vibin-eq-bar-load:nth-child(3) { animation-delay: 180ms; }
+.vibin-eq .vibin-eq-bar-load:nth-child(4) { animation-delay: 270ms; }
+.vibin-eq .vibin-eq-bar-load:nth-child(5) { animation-delay: 360ms; }
+@media (prefers-reduced-motion: reduce) {
+  .vibin-eq .vibin-eq-bar-load { animation: none; transform: scaleY(0.6); }
+}
+
+/* Home hero — float + ping + sparkle + ticker marquee */
+@keyframes vibin-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes vibin-ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+@keyframes vibin-twinkle {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes vibin-nv-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@keyframes vibin-emoji-floatup {
+  0%   { opacity: 0; transform: translate(-50%, 10px) scale(0.6); }
+  15%  { opacity: 1; transform: translate(-50%, -20px) scale(1); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(calc(-50% + var(--sway, 0px)), -320px) scale(0.9); }
+}
+.vibin-float { animation: vibin-float 2.8s ease-in-out infinite; }
+.vibin-ping { animation: vibin-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite; }
+.vibin-twinkle { animation: vibin-twinkle 3.2s ease-in-out infinite; }
+.vibin-nv-ticker:hover .vibin-nv-track { animation-play-state: paused; }
+.vibin-nv-track { animation: vibin-nv-scroll 38s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .vibin-float, .vibin-ping, .vibin-twinkle { animation: none !important; }
+  .vibin-nv-track { animation: none !important; }
+}
+
+/* Stage — pulse + glow + reactions floatUp */
+@keyframes vibin-stage-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 8px color-mix(in oklch, var(--primary) 10%, transparent),
+      0 20px 40px -12px rgba(0, 0, 0, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 0 14px color-mix(in oklch, var(--primary) 6%, transparent),
+      0 20px 40px -12px rgba(0, 0, 0, 0.5);
   }
 }
+@keyframes vibin-stage-glow {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+@keyframes vibin-reaction-float {
+  0%   { transform: translate(0, 0) scale(0.4); opacity: 0; }
+  15%  { opacity: 1; transform: translate(0, -40px) scale(1); }
+  70%  { opacity: 1; }
+  100% { transform: translate(var(--dx, 10px), -360px) scale(1); opacity: 0; }
+}
+.vibin-stage-pulse { animation: vibin-stage-pulse 3s ease-in-out infinite; }
+.vibin-stage-glow { animation: vibin-stage-glow 6s ease-in-out infinite; }
+.vibin-stage-reaction {
+  animation: vibin-reaction-float var(--dur, 3600ms) cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vibin-stage-pulse, .vibin-stage-glow { animation: none !important; }
+  .vibin-stage-reaction { animation: none !important; opacity: 0 !important; }
+}
 
+/* Chat — typing dots, peek pulse, sheet up, toast in */
+@keyframes vibin-typing-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes vibin-peek-pulse {
+  0%, 100% {
+    box-shadow:
+      0 12px 32px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 1px color-mix(in oklch, var(--primary) 20%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 12px 32px -12px rgba(0, 0, 0, 0.5),
+      0 0 0 3px color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+}
+@keyframes vibin-sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes vibin-toast-in {
+  from { transform: translate(-50%, 8px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.vibin-typing-dots { display: inline-flex; gap: 3px; align-items: center; }
+.vibin-typing-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: var(--muted-foreground);
+  animation: vibin-typing-dot 1.2s ease-in-out infinite;
+}
+.vibin-typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+.vibin-typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+.vibin-peek-pulse { animation: vibin-peek-pulse 3s ease-in-out infinite; }
+.vibin-sheet-up { animation: vibin-sheet-up 0.28s var(--ease-out-soft) both; }
+.vibin-toast-in { animation: vibin-toast-in 0.28s var(--ease-out-soft) both; }
+@media (prefers-reduced-motion: reduce) {
+  .vibin-typing-dots span { animation: none; opacity: 0.7; }
+  .vibin-peek-pulse, .vibin-sheet-up, .vibin-toast-in { animation: none; }
+}
+
+/* Eq-mark (home brand lockup bars) */
+@keyframes vibin-eqmark-bar {
+  0%, 100% { transform: scaleY(0.55); }
+  50% { transform: scaleY(1); }
+}
+.vibin-eqmark-bar {
+  transform-origin: center bottom;
+  animation: vibin-eqmark-bar var(--dur, 0.85s) ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .vibin-eqmark-bar { animation: none; transform: scaleY(0.8); }
+}

@@ -11,6 +11,7 @@ import { effectivePlaybackSec } from "@/lib/playback-sync";
 
 export type YouTubeSyncPlayerHandle = {
   getCurrentTime: () => number | null;
+  getDuration: () => number | null;
 };
 
 type Props = {
@@ -156,6 +157,7 @@ export const YouTubeSyncPlayer = forwardRef<
 
   useImperativeHandle(ref, () => ({
     getCurrentTime: () => playerRef.current?.getCurrentTime?.() ?? null,
+    getDuration: () => playerRef.current?.getDuration?.() ?? null,
   }));
 
   const triggerResyncUi = () => {
@@ -542,13 +544,15 @@ export const YouTubeSyncPlayer = forwardRef<
       }}
     >
       <div className="h-full w-full" ref={containerRef} />
-      <div className="border-border/70 bg-background/80 text-foreground absolute left-2 top-2 z-10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold shadow-sm backdrop-blur-sm sm:text-xs">
-        <span
-          aria-hidden
-          className={`inline-block size-2 rounded-full ${syncState === "resyncing" ? "bg-amber-400" : "bg-emerald-400"}`}
-        />
-        {syncState === "resyncing" ? "Resyncing..." : "Synced"}
-      </div>
+      {syncState === "resyncing" ? (
+        <div className="border-border/70 bg-background/80 text-foreground absolute left-2 bottom-12 z-10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.65rem] font-semibold shadow-sm backdrop-blur-sm sm:text-xs">
+          <span
+            aria-hidden
+            className="inline-block size-2 rounded-full bg-amber-400"
+          />
+          Resyncing...
+        </div>
+      ) : null}
       {!isHost && videoId ? (
         <button
           type="button"
