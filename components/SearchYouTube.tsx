@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { YouTubeSearchItem } from "@/lib/types";
+import type { AddQueueItem, YouTubeSearchItem } from "@/lib/types";
+import { parseVideoUrl } from "@/lib/parseVideoUrl";
 
 type Props = {
-  onAdd: (item: YouTubeSearchItem) => Promise<boolean> | boolean;
+  onAdd: (item: AddQueueItem) => Promise<boolean> | boolean;
   disabled?: boolean;
   /** YouTube `videoId`s already present in the room queue — show “Added” instead of “Add”. */
   queuedVideoIds?: ReadonlySet<string>;
+  /** Direct media URLs already in the queue — used to mark pasted-URL adds as already added. */
+  queuedMediaUrls?: ReadonlySet<string>;
 };
 
 /** `pe-*` reserves space for custom clear control (Safari hides native search cancel on dark UI). */
@@ -33,7 +36,12 @@ function formatPublishedAt(iso?: string): string {
   });
 }
 
-export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
+export function SearchYouTube({
+  onAdd,
+  disabled,
+  queuedVideoIds,
+  queuedMediaUrls,
+}: Props) {
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [items, setItems] = useState<YouTubeSearchItem[]>([]);
@@ -45,6 +53,57 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
   const [locallyAddedIds, setLocallyAddedIds] = useState<Set<string>>(
     () => new Set()
   );
+  const [pasteUrl, setPasteUrl] = useState("");
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [pasteAdding, setPasteAdding] = useState(false);
+
+  const handlePasteAdd = useCallback(async () => {
+    if (disabled || pasteAdding) return;
+    const parsed = parseVideoUrl(pasteUrl);
+    if (!parsed) {
+      setPasteError("Paste a valid http(s) URL.");
+      return;
+    }
+    const dupId =
+      parsed.provider === "youtube"
+        ? parsed.videoId
+        : parsed.provider === "direct"
+          ? parsed.mediaUrl
+          : parsed.embedUrl;
+    const dup =
+      parsed.provider === "youtube"
+        ? queuedVideoIds?.has(parsed.videoId) || locallyAddedIds.has(dupId)
+        : queuedMediaUrls?.has(dupId) || locallyAddedIds.has(dupId);
+    if (dup) {
+      setPasteError("Already in queue.");
+      return;
+    }
+    setPasteError(null);
+    setPasteAdding(true);
+    try {
+      const ok = await Promise.resolve(onAdd(parsed));
+      if (ok) {
+        setLocallyAddedIds((prev) => {
+          const next = new Set(prev);
+          next.add(dupId);
+          return next;
+        });
+        setPasteUrl("");
+      } else {
+        setPasteError("Could not add — try again.");
+      }
+    } finally {
+      setPasteAdding(false);
+    }
+  }, [
+    disabled,
+    pasteAdding,
+    pasteUrl,
+    queuedVideoIds,
+    queuedMediaUrls,
+    locallyAddedIds,
+    onAdd,
+  ]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 400);
@@ -182,6 +241,63 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
             </button>
           ) : null}
         </div>
+        <div className="mt-2 flex items-stretch gap-2">
+          <div className="border-border bg-surface-elevated focus-within:border-primary focus-within:ring-primary/55 relative flex-1 rounded-xl border transition-[border-color,box-shadow] focus-within:ring-1">
+            <span className="pointer-events-none absolute inset-y-0 left-0 inline-flex items-center pl-3 text-muted-foreground sm:pl-3.5">
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4.5"
+                aria-hidden
+              >
+                <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+              </svg>
+            </span>
+            <input
+              type="url"
+              inputMode="url"
+              value={pasteUrl}
+              onChange={(e) => {
+                setPasteUrl(e.target.value);
+                if (pasteError) setPasteError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handlePasteAdd();
+                }
+              }}
+              placeholder="Paste any video URL…"
+              disabled={disabled || pasteAdding}
+              className={fieldClass}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              enterKeyHint="go"
+              aria-label="Paste a video URL"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void handlePasteAdd()}
+            disabled={disabled || pasteAdding || pasteUrl.trim().length === 0}
+            className={addBtnClass}
+            aria-label="Add pasted URL to queue"
+          >
+            {pasteAdding ? "Adding…" : "Add"}
+          </button>
+        </div>
+        {pasteError ? (
+          <p className="text-destructive mt-1.5 text-xs font-medium" role="alert">
+            {pasteError}
+          </p>
+        ) : null}
       </div>
       {error && (
         <p className="text-destructive text-sm font-medium" role="alert">
@@ -237,7 +353,14 @@ export function SearchYouTube({ onAdd, disabled, queuedVideoIds }: Props) {
                     next.add(id);
                     return next;
                   });
-                  void Promise.resolve(onAdd(it))
+                  void Promise.resolve(
+                    onAdd({
+                      provider: "youtube",
+                      videoId: it.videoId,
+                      title: it.title,
+                      thumbUrl: it.thumbUrl,
+                    })
+                  )
                     .then((ok) => {
                       if (ok) {
                         setLocallyAddedIds((prev) => {

@@ -19,11 +19,9 @@ import {
   hasCompletedDisplayProfile,
   shouldBroadcastActivity,
 } from "@/lib/displayName";
-import type { QueueItem, YouTubeSearchItem } from "@/lib/types";
-import {
-  YouTubeSyncPlayer,
-  type YouTubeSyncPlayerHandle,
-} from "@/components/YouTubeHostPlayer";
+import type { AddQueueItem, QueueItem } from "@/lib/types";
+import { type YouTubeSyncPlayerHandle } from "@/components/YouTubeHostPlayer";
+import { HostPlayer } from "@/components/HostPlayer";
 import { SearchYouTube } from "@/components/SearchYouTube";
 import { HostYoutubePlaylists } from "@/components/HostYoutubePlaylists";
 import {
@@ -1462,7 +1460,23 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const hasNowPlaying = !!nowPlaying;
 
   const queuedVideoIds = useMemo(
-    () => new Set(queue.map((q) => q.video_id)),
+    () =>
+      new Set(
+        queue
+          .map((q) => q.video_id)
+          .filter((id): id is string => typeof id === "string" && id.length > 0)
+      ),
+    [queue]
+  );
+  const queuedMediaUrls = useMemo(
+    () =>
+      new Set(
+        queue
+          .map((q) => q.media_url)
+          .filter(
+            (url): url is string => typeof url === "string" && url.length > 0
+          )
+      ),
     [queue]
   );
 
@@ -1590,7 +1604,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   useEffect(() => {
     if (!ready || !isHost) return;
-    if (!nowPlaying?.video_id || playbackPaused) return;
+    if (!nowPlaying || playbackPaused) return;
     let supabase: ReturnType<typeof getSupabaseBrowserClient>;
     try {
       supabase = getSupabaseBrowserClient();
@@ -1606,10 +1620,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       });
     }, 2500);
     return () => window.clearInterval(id);
-  }, [ready, isHost, nowPlaying?.video_id, playbackPaused, roomId]);
+  }, [ready, isHost, nowPlaying, playbackPaused, roomId]);
 
   useEffect(() => {
-    if (!ready || !nowPlaying?.video_id) {
+    if (!ready || !nowPlaying) {
       setVideoTimeSec(0);
       setVideoDurationSec(null);
       return;
@@ -1623,7 +1637,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       }
     }, 1000);
     return () => window.clearInterval(id);
-  }, [ready, nowPlaying?.video_id]);
+  }, [ready, nowPlaying]);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -1648,18 +1662,42 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   }, []);
 
   const handleAdd = useCallback(
-    async (item: YouTubeSearchItem): Promise<boolean> => {
+    async (item: AddQueueItem): Promise<boolean> => {
       const supabase = getSupabaseBrowserClient();
       const label = localDisplayLabel.trim() || "Anonymous";
+      const insertRow =
+        item.provider === "youtube"
+          ? {
+              room_id: roomId,
+              provider: "youtube" as const,
+              video_id: item.videoId,
+              media_url: null,
+              title: item.title,
+              thumb_url: item.thumbUrl || null,
+              added_by: label,
+            }
+          : item.provider === "direct"
+            ? {
+                room_id: roomId,
+                provider: "direct" as const,
+                video_id: null,
+                media_url: item.mediaUrl,
+                title: item.title,
+                thumb_url: item.thumbUrl,
+                added_by: label,
+              }
+            : {
+                room_id: roomId,
+                provider: "embed" as const,
+                video_id: null,
+                media_url: item.embedUrl,
+                title: item.title,
+                thumb_url: item.thumbUrl,
+                added_by: label,
+              };
       const { data, error } = await supabase
         .from("queue_items")
-        .insert({
-          room_id: roomId,
-          video_id: item.videoId,
-          title: item.title,
-          thumb_url: item.thumbUrl || null,
-          added_by: label,
-        })
+        .insert(insertRow)
         .select("*")
         .single();
       if (error) {
@@ -1872,12 +1910,19 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
 
   useEffect(() => {
     const videoId = nowPlaying?.video_id ?? "";
-    if (!videoId) {
+    const ambientKey = videoId || nowPlaying?.id || "";
+    if (!nowPlaying) {
       setAmbientTheme(deriveFallbackAmbient(roomId));
       return;
     }
 
-    const thumb = nowPlaying?.thumb_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const thumb =
+      nowPlaying.thumb_url ||
+      (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : "");
+    if (!thumb) {
+      setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
+      return;
+    }
     let cancelled = false;
     const image = new Image();
     image.crossOrigin = "anonymous";
@@ -1893,21 +1938,21 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         if (!ctx) throw new Error("2d context unavailable");
         ctx.drawImage(image, 0, 0, 28, 28);
         const data = ctx.getImageData(0, 0, 28, 28).data;
-        setAmbientTheme(deriveAmbientFromImageData(data, videoId));
+        setAmbientTheme(deriveAmbientFromImageData(data, ambientKey));
       } catch {
-        setAmbientTheme(deriveFallbackAmbient(videoId));
+        setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
       }
     };
 
     image.onerror = () => {
-      if (!cancelled) setAmbientTheme(deriveFallbackAmbient(videoId));
+      if (!cancelled) setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
     };
     image.src = thumb;
 
     return () => {
       cancelled = true;
     };
-  }, [nowPlaying?.video_id, nowPlaying?.thumb_url, roomId]);
+  }, [nowPlaying, roomId]);
 
   useEffect(() => {
     if (activePanel === "search") {
@@ -1950,7 +1995,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       new Set(
         upcomingQueue
           .map((item) => item.video_id)
-          .filter((id) => id && !videoPublishedAtById[id])
+          .filter(
+            (id): id is string =>
+              typeof id === "string" && id.length > 0 && !videoPublishedAtById[id]
+          )
       )
     ).slice(0, 25);
     if (missingVideoIds.length === 0) return;
@@ -2334,10 +2382,10 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                     onTogglePlay={() => void togglePlayPause()}
                     controlsDisabled={!isHost}
                   >
-                    <YouTubeSyncPlayer
+                    <HostPlayer
                       ref={syncPlayerRef}
                       className="rounded-none shadow-lg ring-0 sm:rounded-xl sm:shadow-md sm:ring-2"
-                      videoId={nowPlaying?.video_id ?? null}
+                      nowPlaying={nowPlaying}
                       remotePaused={playbackPaused}
                       anchorSec={playbackAnchorSec}
                       anchorAtIso={playbackAnchorAt}
@@ -2456,7 +2504,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                                   {item.title}
                                 </p>
                                 <p className="text-muted-foreground mt-0.5 text-[11px]">
-                                  {`Uploaded ${formatIsoDate(videoPublishedAtById[item.video_id]) || "Unknown"} • Added by ${item.added_by?.trim() || "Anonymous"}`}
+                                  {item.provider === "youtube"
+                                    ? `Uploaded ${
+                                        (item.video_id &&
+                                          formatIsoDate(
+                                            videoPublishedAtById[item.video_id]
+                                          )) ||
+                                        "Unknown"
+                                      } • Added by ${item.added_by?.trim() || "Anonymous"}`
+                                    : `Pasted URL • Added by ${item.added_by?.trim() || "Anonymous"}`}
                                 </p>
                               </div>
                             </button>
@@ -2498,7 +2554,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   }`}
               >
                 {hasOpenedSearch ? (
-                  <SearchYouTube onAdd={handleAdd} queuedVideoIds={queuedVideoIds} />
+                  <SearchYouTube
+                    onAdd={handleAdd}
+                    queuedVideoIds={queuedVideoIds}
+                    queuedMediaUrls={queuedMediaUrls}
+                  />
                 ) : null}
               </section>
               <section
