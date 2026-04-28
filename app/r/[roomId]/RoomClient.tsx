@@ -54,6 +54,7 @@ import {
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
 import { useRoomVisualViewport } from "@/hooks/useRoomVisualViewport";
+import { useTheme } from "@/components/ThemeProvider";
 
 type Props = {
   roomId: string;
@@ -225,15 +226,31 @@ function hashHue(seed: string): number {
   return Math.abs(hash) % 360;
 }
 
-function deriveFallbackAmbient(seed: string): AmbientTheme {
-  const hue = hashHue(seed || "vibin");
+type ThemeMode = "light" | "dark";
+
+function ambientForMode(hue: number, sat: number, mode: ThemeMode): AmbientTheme {
+  if (mode === "light") {
+    return {
+      base: `hsl(${hue} ${Math.min(28, sat * 0.4)}% 96%)`,
+      glow: `hsla(${hue} ${Math.min(70, sat)}% 65% / 0.18)`,
+    };
+  }
   return {
     base: `hsl(${hue} 30% 8%)`,
-    glow: `hsla(${hue} 85% 62% / 0.22)`,
+    glow: `hsla(${hue} ${sat}% 62% / 0.24)`,
   };
 }
 
-function deriveAmbientFromImageData(pixels: Uint8ClampedArray, seed: string): AmbientTheme {
+function deriveFallbackAmbient(seed: string, mode: ThemeMode = "dark"): AmbientTheme {
+  const hue = hashHue(seed || "vibin");
+  return ambientForMode(hue, 70, mode);
+}
+
+function deriveAmbientFromImageData(
+  pixels: Uint8ClampedArray,
+  seed: string,
+  mode: ThemeMode = "dark"
+): AmbientTheme {
   let sumR = 0;
   let sumG = 0;
   let sumB = 0;
@@ -251,7 +268,7 @@ function deriveAmbientFromImageData(pixels: Uint8ClampedArray, seed: string): Am
     count += 1;
   }
 
-  if (count === 0) return deriveFallbackAmbient(seed);
+  if (count === 0) return deriveFallbackAmbient(seed, mode);
 
   const avgR = Math.round(sumR / count);
   const avgG = Math.round(sumG / count);
@@ -269,15 +286,13 @@ function deriveAmbientFromImageData(pixels: Uint8ClampedArray, seed: string): Am
         : ((avgR - avgG) / chroma) * 60 + 240
   );
 
-  return {
-    base: `hsl(${hue} 30% 8%)`,
-    glow: `hsla(${hue} ${sat}% 62% / 0.24)`,
-  };
+  return ambientForMode(hue, sat, mode);
 }
 
 export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
+  const { resolved: themeResolved, toggle: toggleTheme } = useTheme();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -329,6 +344,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [upcomingRenderCount, setUpcomingRenderCount] = useState(
     UPCOMING_QUEUE_INITIAL_RENDER
   );
+  const queueListRef = useRef<HTMLUListElement | null>(null);
+  const queueDividerRef = useRef<HTMLLIElement | null>(null);
+  const [pendingFullscreenItemId, setPendingFullscreenItemId] = useState<
+    string | null
+  >(null);
   const [videoPublishedAtById, setVideoPublishedAtById] = useState<
     Record<string, string>
   >({});
@@ -352,9 +372,35 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     null
   );
   const [localDisplayLabel, setLocalDisplayLabel] = useState<string>("Anonymous");
+  const [themeMode, setThemeMode] = useState<ThemeMode>("dark");
   const [ambientTheme, setAmbientTheme] = useState<AmbientTheme>(() =>
-    deriveFallbackAmbient(roomId)
+    deriveFallbackAmbient(roomId, "dark")
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const compute = (): ThemeMode => {
+      const explicit = document.documentElement.getAttribute("data-theme");
+      if (explicit === "light") return "light";
+      if (explicit === "dark") return "dark";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    };
+    setThemeMode(compute());
+    const obs = new MutationObserver(() => setThemeMode(compute()));
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = () => setThemeMode(compute());
+    mq.addEventListener?.("change", onChange);
+    return () => {
+      obs.disconnect();
+      mq.removeEventListener?.("change", onChange);
+    };
+  }, []);
 
   const roomChannelRef = useRef<RealtimeChannel | null>(null);
   const currentUserIdRef = useRef<string | null>(null);
@@ -1459,34 +1505,43 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const nowPlayingId = effectiveNowId;
   const hasNowPlaying = !!nowPlaying;
 
+  const currentQueueIndex = useMemo(() => {
+    if (!effectiveNowId) return -1;
+    return queue.findIndex((q) => q.id === effectiveNowId);
+  }, [queue, effectiveNowId]);
+
+  /** Dedup against current + upcoming only. Played items may be re-added. */
+  const activeQueueSlice = useMemo(
+    () => (currentQueueIndex < 0 ? queue : queue.slice(currentQueueIndex)),
+    [queue, currentQueueIndex]
+  );
   const queuedVideoIds = useMemo(
     () =>
       new Set(
-        queue
+        activeQueueSlice
           .map((q) => q.video_id)
           .filter((id): id is string => typeof id === "string" && id.length > 0)
       ),
-    [queue]
+    [activeQueueSlice]
   );
   const queuedMediaUrls = useMemo(
     () =>
       new Set(
-        queue
+        activeQueueSlice
           .map((q) => q.media_url)
           .filter(
             (url): url is string => typeof url === "string" && url.length > 0
           )
       ),
-    [queue]
+    [activeQueueSlice]
   );
-
-  const currentQueueIndex = useMemo(() => {
-    if (!effectiveNowId) return -1;
-    return queue.findIndex((q) => q.id === effectiveNowId);
-  }, [queue, effectiveNowId]);
   const upcomingQueue = useMemo(() => {
     if (currentQueueIndex < 0) return [];
     return queue.slice(currentQueueIndex + 1);
+  }, [queue, currentQueueIndex]);
+  const playedQueue = useMemo(() => {
+    if (currentQueueIndex <= 0) return [];
+    return queue.slice(0, currentQueueIndex);
   }, [queue, currentQueueIndex]);
   const visibleUpcomingQueue = useMemo(
     () => upcomingQueue.slice(0, upcomingRenderCount),
@@ -1715,6 +1770,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               return String(a.id).localeCompare(String(b.id));
             });
           });
+          if (item.provider !== "youtube") {
+            setPendingFullscreenItemId(data.id);
+          }
         }
         if (label) {
           void notifyRoomActivity(
@@ -1912,7 +1970,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     const videoId = nowPlaying?.video_id ?? "";
     const ambientKey = videoId || nowPlaying?.id || "";
     if (!nowPlaying) {
-      setAmbientTheme(deriveFallbackAmbient(roomId));
+      setAmbientTheme(deriveFallbackAmbient(roomId, themeMode));
       return;
     }
 
@@ -1920,7 +1978,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
       nowPlaying.thumb_url ||
       (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : "");
     if (!thumb) {
-      setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
+      setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId, themeMode));
       return;
     }
     let cancelled = false;
@@ -1938,21 +1996,22 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         if (!ctx) throw new Error("2d context unavailable");
         ctx.drawImage(image, 0, 0, 28, 28);
         const data = ctx.getImageData(0, 0, 28, 28).data;
-        setAmbientTheme(deriveAmbientFromImageData(data, ambientKey));
+        setAmbientTheme(deriveAmbientFromImageData(data, ambientKey, themeMode));
       } catch {
-        setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
+        setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId, themeMode));
       }
     };
 
     image.onerror = () => {
-      if (!cancelled) setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId));
+      if (!cancelled)
+        setAmbientTheme(deriveFallbackAmbient(ambientKey || roomId, themeMode));
     };
     image.src = thumb;
 
     return () => {
       cancelled = true;
     };
-  }, [nowPlaying, roomId]);
+  }, [nowPlaying, roomId, themeMode]);
 
   useEffect(() => {
     if (activePanel === "search") {
@@ -1975,6 +2034,29 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   useEffect(() => {
     setUpcomingRenderCount(UPCOMING_QUEUE_INITIAL_RENDER);
   }, [effectiveNowId, queue.length]);
+
+  // Pin upcoming items to the top of the list; played items stay above and are
+  // revealed by scrolling up.
+  useEffect(() => {
+    if (activePanel !== "now") return;
+    if (playedQueue.length === 0) return;
+    const list = queueListRef.current;
+    const divider = queueDividerRef.current;
+    if (!list || !divider) return;
+    list.scrollTop = divider.offsetTop;
+  }, [activePanel, effectiveNowId, playedQueue.length]);
+
+  // When a freshly-pasted (non-YouTube) item becomes now-playing, request
+  // fullscreen on the player. The Add-button click is the user gesture.
+  useEffect(() => {
+    if (!pendingFullscreenItemId) return;
+    if (effectiveNowId !== pendingFullscreenItemId) return;
+    const id = window.setTimeout(() => {
+      syncPlayerRef.current?.requestFullscreen?.();
+    }, 200);
+    setPendingFullscreenItemId(null);
+    return () => window.clearTimeout(id);
+  }, [pendingFullscreenItemId, effectiveNowId]);
 
   const handleUpcomingQueueScroll = useCallback(
     (e: React.UIEvent<HTMLUListElement>) => {
@@ -2218,6 +2300,50 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           <div className={headerToolbarClass}>
             <button
               type="button"
+              onClick={toggleTheme}
+              className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
+              title={
+                themeResolved === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+              aria-label={
+                themeResolved === "dark"
+                  ? "Switch to light mode"
+                  : "Switch to dark mode"
+              }
+            >
+              {themeResolved === "dark" ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="size-4.5"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="size-4.5"
+                  aria-hidden
+                >
+                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
               onClick={openGuestInvite}
               className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
               title={
@@ -2449,7 +2575,9 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
               {activePanel === "now" ? (
                 <section className="w-full max-w-2xl min-h-0 flex-1 rounded-xl border border-border/70 bg-card/60 px-2.5 py-2.5 sm:rounded-2xl sm:px-3 sm:py-3 min-[708px]:max-w-none">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-foreground text-sm font-semibold">Next in queue</p>
+                    <p className="text-foreground text-sm font-semibold">
+                      {playedQueue.length > 0 ? "Queue" : "Next in queue"}
+                    </p>
                     <div className="flex items-center gap-2">
                       {upcomingQueue.length > 0 ? (
                         <p className="text-muted-foreground text-xs">
@@ -2468,11 +2596,71 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                       </button>
                     </div>
                   </div>
-                  {upcomingQueue.length > 0 ? (
+                  {playedQueue.length + upcomingQueue.length > 0 ? (
                     <ul
+                      ref={queueListRef}
                       className="mt-2 flex h-[calc(100%-1.75rem)] min-h-0 flex-col gap-2 overflow-y-auto pr-1"
                       onScroll={handleUpcomingQueueScroll}
                     >
+                      {playedQueue.map((item) => (
+                        <li
+                          key={item.id}
+                          className="border-border/70 bg-background/30 rounded-xl border opacity-70"
+                        >
+                          <div className="flex items-start gap-2.5 px-2.5 py-2">
+                            <button
+                              type="button"
+                              onClick={() => void handlePlayQueueItem(item.id)}
+                              className="hover:bg-muted/55 focus-visible:ring-ring flex min-w-0 flex-1 items-center gap-3 rounded-xl px-0.5 py-0.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                              title="Play again"
+                            >
+                              <span className="text-muted-foreground w-5 shrink-0 text-center text-[10px] font-semibold uppercase">
+                                ✓
+                              </span>
+                              {item.thumb_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={item.thumb_url}
+                                  alt={item.title}
+                                  width={48}
+                                  height={48}
+                                  className="h-10 w-10 shrink-0 rounded-lg object-cover grayscale"
+                                />
+                              ) : (
+                                <div className="bg-muted h-10 w-10 shrink-0 rounded-lg" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-foreground line-clamp-2 text-sm font-medium">
+                                  {item.title}
+                                </p>
+                                <p className="text-muted-foreground mt-0.5 text-[11px]">
+                                  {item.provider === "youtube"
+                                    ? `Played • Added by ${item.added_by?.trim() || "Anonymous"}`
+                                    : `Played • Pasted URL • Added by ${item.added_by?.trim() || "Anonymous"}`}
+                                </p>
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void removeQueueItem(item)}
+                              className="text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring inline-flex min-h-8 shrink-0 items-center justify-center rounded-lg px-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                              title="Remove from queue"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                      {playedQueue.length > 0 ? (
+                        <li
+                          ref={queueDividerRef}
+                          className="text-muted-foreground -my-0.5 flex items-center gap-2 px-1 py-1 text-[10px] font-semibold uppercase tracking-wider"
+                        >
+                          <span aria-hidden className="bg-border/70 h-px flex-1" />
+                          <span>Up next</span>
+                          <span aria-hidden className="bg-border/70 h-px flex-1" />
+                        </li>
+                      ) : null}
                       {visibleUpcomingQueue.map((item, idx) => (
                         <li
                           key={item.id}
@@ -2530,6 +2718,20 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                       {visibleUpcomingQueue.length < upcomingQueue.length ? (
                         <li className="text-muted-foreground py-1 text-center text-xs">
                           Loading more queue items...
+                        </li>
+                      ) : null}
+                      {upcomingQueue.length === 0 ? (
+                        <li className="border-border/70 bg-background/40 rounded-xl border px-3 py-3">
+                          <p className="text-foreground text-sm font-medium">
+                            No more videos in queue.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setActivePanel("search")}
+                            className="text-primary hover:text-primary/90 mt-1.5 text-sm font-semibold underline underline-offset-4"
+                          >
+                            Search and add more videos
+                          </button>
                         </li>
                       ) : null}
                     </ul>

@@ -58,6 +58,7 @@ export const Html5VideoPlayer = forwardRef<YouTubeSyncPlayerHandle, Props>(
     ref
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const surfaceRef = useRef<HTMLDivElement>(null);
     const onEndedRef = useRef(onHostVideoEnded);
     const onScrubRef = useRef(onPlaybackScrub);
     const onPausePlayRef = useRef(onIframePausePlay);
@@ -96,6 +97,29 @@ export const Html5VideoPlayer = forwardRef<YouTubeSyncPlayerHandle, Props>(
       getDuration: () => {
         const d = videoRef.current?.duration;
         return d != null && Number.isFinite(d) ? d : null;
+      },
+      requestFullscreen: () => {
+        const v = videoRef.current as
+          | (HTMLVideoElement & {
+              webkitEnterFullscreen?: () => void;
+            })
+          | null;
+        // iOS Safari only allows fullscreen on the <video> element itself.
+        if (v?.webkitEnterFullscreen) {
+          try {
+            v.webkitEnterFullscreen();
+            return;
+          } catch {
+            /* fall through */
+          }
+        }
+        const el = surfaceRef.current;
+        if (!el) return;
+        try {
+          void el.requestFullscreen?.();
+        } catch {
+          /* ignore */
+        }
       },
     }));
 
@@ -272,6 +296,7 @@ export const Html5VideoPlayer = forwardRef<YouTubeSyncPlayerHandle, Props>(
 
     return (
       <div
+        ref={surfaceRef}
         className={`ring-primary/25 relative w-full max-h-[min(42vh,22rem)] overflow-hidden rounded-xl bg-black shadow-md ring-2 min-[708px]:max-h-[min(72vh,48rem)] ${className ?? ""}`}
         style={{ aspectRatio: "16 / 9" }}
       >

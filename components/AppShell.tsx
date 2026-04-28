@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { VibinEqualizerMark } from "@/components/VibinEqualizerMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useTheme } from "@/components/ThemeProvider";
 import { readStoredHostRoom } from "@/lib/party-session";
 
 type NavId = "home" | "explore" | "create" | "settings" | "me";
@@ -257,6 +258,7 @@ function MobileTabBar({
   current: NavId | "room";
   onNavigate: (id: NavId) => void;
 }) {
+  const { resolved: themeResolved, toggle: toggleTheme } = useTheme();
   const items: { id: NavId; label: string }[] = [
     { id: "home", label: "Home" },
     { id: "explore", label: "Explore" },
@@ -300,6 +302,54 @@ function MobileTabBar({
           </button>
         );
       })}
+      <button
+        type="button"
+        onClick={toggleTheme}
+        aria-label={
+          themeResolved === "dark"
+            ? "Switch to light mode"
+            : "Switch to dark mode"
+        }
+        title={
+          themeResolved === "dark"
+            ? "Switch to light mode"
+            : "Switch to dark mode"
+        }
+        className="flex flex-1 cursor-pointer flex-col items-center gap-0.5 border-0 bg-transparent px-1.5 py-2.5 text-[10px] font-semibold"
+        style={{ color: "var(--muted-foreground)" }}
+      >
+        {themeResolved === "dark" ? (
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
+          </svg>
+        ) : (
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+          </svg>
+        )}
+        <span>Theme</span>
+      </button>
     </nav>
   );
 }

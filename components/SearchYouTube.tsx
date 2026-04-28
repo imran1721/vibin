@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AddQueueItem, YouTubeSearchItem } from "@/lib/types";
-import { parseVideoUrl } from "@/lib/parseVideoUrl";
+import { parseVideoUrl, type ParsedVideo } from "@/lib/parseVideoUrl";
 
 type Props = {
   onAdd: (item: AddQueueItem) => Promise<boolean> | boolean;
   disabled?: boolean;
   /** YouTube `videoId`s already present in the room queue — show “Added” instead of “Add”. */
   queuedVideoIds?: ReadonlySet<string>;
-  /** Direct media URLs already in the queue — used to mark pasted-URL adds as already added. */
+  /** Direct/embed media URLs already in the queue — used to mark pasted-URL adds as already added. */
   queuedMediaUrls?: ReadonlySet<string>;
 };
 
@@ -36,6 +36,18 @@ function formatPublishedAt(iso?: string): string {
   });
 }
 
+function urlDedupKey(parsed: ParsedVideo): string {
+  if (parsed.provider === "youtube") return parsed.videoId;
+  if (parsed.provider === "direct") return parsed.mediaUrl;
+  return parsed.embedUrl;
+}
+
+function providerLabel(parsed: ParsedVideo): string {
+  if (parsed.provider === "youtube") return "YouTube";
+  if (parsed.provider === "direct") return "Direct video";
+  return "Embed";
+}
+
 export function SearchYouTube({
   onAdd,
   disabled,
@@ -53,57 +65,11 @@ export function SearchYouTube({
   const [locallyAddedIds, setLocallyAddedIds] = useState<Set<string>>(
     () => new Set()
   );
-  const [pasteUrl, setPasteUrl] = useState("");
-  const [pasteError, setPasteError] = useState<string | null>(null);
-  const [pasteAdding, setPasteAdding] = useState(false);
+  const [urlAdding, setUrlAdding] = useState(false);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
-  const handlePasteAdd = useCallback(async () => {
-    if (disabled || pasteAdding) return;
-    const parsed = parseVideoUrl(pasteUrl);
-    if (!parsed) {
-      setPasteError("Paste a valid http(s) URL.");
-      return;
-    }
-    const dupId =
-      parsed.provider === "youtube"
-        ? parsed.videoId
-        : parsed.provider === "direct"
-          ? parsed.mediaUrl
-          : parsed.embedUrl;
-    const dup =
-      parsed.provider === "youtube"
-        ? queuedVideoIds?.has(parsed.videoId) || locallyAddedIds.has(dupId)
-        : queuedMediaUrls?.has(dupId) || locallyAddedIds.has(dupId);
-    if (dup) {
-      setPasteError("Already in queue.");
-      return;
-    }
-    setPasteError(null);
-    setPasteAdding(true);
-    try {
-      const ok = await Promise.resolve(onAdd(parsed));
-      if (ok) {
-        setLocallyAddedIds((prev) => {
-          const next = new Set(prev);
-          next.add(dupId);
-          return next;
-        });
-        setPasteUrl("");
-      } else {
-        setPasteError("Could not add — try again.");
-      }
-    } finally {
-      setPasteAdding(false);
-    }
-  }, [
-    disabled,
-    pasteAdding,
-    pasteUrl,
-    queuedVideoIds,
-    queuedMediaUrls,
-    locallyAddedIds,
-    onAdd,
-  ]);
+  /** When the input is a parseable URL, switch the UI from "search" mode to "add this URL" mode. */
+  const parsedUrl = useMemo(() => parseVideoUrl(q), [q]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(q.trim()), 400);
@@ -171,9 +137,55 @@ export function SearchYouTube({
     }
   }, [debounced, nextPageToken, loadingMore]);
 
+  /** Skip the search request when the input is a URL — we render an Add candidate instead. */
   useEffect(() => {
+    if (parsedUrl) {
+      setItems([]);
+      setNextPageToken(null);
+      setError(null);
+      return;
+    }
     void runSearch(debounced);
-  }, [debounced, runSearch]);
+  }, [debounced, runSearch, parsedUrl]);
+
+  const handleUrlAdd = useCallback(async () => {
+    if (disabled || urlAdding || !parsedUrl) return;
+    const dupKey = urlDedupKey(parsedUrl);
+    const dup =
+      parsedUrl.provider === "youtube"
+        ? queuedVideoIds?.has(parsedUrl.videoId) ||
+          locallyAddedIds.has(dupKey)
+        : queuedMediaUrls?.has(dupKey) || locallyAddedIds.has(dupKey);
+    if (dup) {
+      setUrlError("Already in queue.");
+      return;
+    }
+    setUrlError(null);
+    setUrlAdding(true);
+    try {
+      const ok = await Promise.resolve(onAdd(parsedUrl));
+      if (ok) {
+        setLocallyAddedIds((prev) => {
+          const next = new Set(prev);
+          next.add(dupKey);
+          return next;
+        });
+        setQ("");
+      } else {
+        setUrlError("Could not add — try again.");
+      }
+    } finally {
+      setUrlAdding(false);
+    }
+  }, [
+    disabled,
+    urlAdding,
+    parsedUrl,
+    queuedVideoIds,
+    queuedMediaUrls,
+    locallyAddedIds,
+    onAdd,
+  ]);
 
   const handleResultsScroll = useCallback(
     (e: React.UIEvent<HTMLUListElement>) => {
@@ -186,6 +198,14 @@ export function SearchYouTube({
     },
     [nextPageToken, loading, loadingMore, loadMore]
   );
+
+  const urlAlreadyQueued = parsedUrl
+    ? parsedUrl.provider === "youtube"
+      ? (queuedVideoIds?.has(parsedUrl.videoId) ?? false) ||
+        locallyAddedIds.has(urlDedupKey(parsedUrl))
+      : (queuedMediaUrls?.has(urlDedupKey(parsedUrl)) ?? false) ||
+        locallyAddedIds.has(urlDedupKey(parsedUrl))
+    : false;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 w-full flex-col gap-3">
@@ -209,22 +229,34 @@ export function SearchYouTube({
             type="text"
             inputMode="search"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Song, artist, or video…"
+            onChange={(e) => {
+              setQ(e.target.value);
+              if (urlError) setUrlError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && parsedUrl) {
+                e.preventDefault();
+                void handleUrlAdd();
+              }
+            }}
+            placeholder="Search or paste a video URL…"
             disabled={disabled}
             className={fieldClassWithClear}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            enterKeyHint="search"
+            enterKeyHint={parsedUrl ? "go" : "search"}
           />
           {q.length > 0 ? (
             <button
               type="button"
               className="text-muted-foreground hover:bg-muted/70 hover:text-foreground focus-visible:ring-ring absolute inset-y-0 right-1 flex min-w-11 items-center justify-center rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 sm:right-1.5"
-              aria-label="Clear search"
-              onClick={() => setQ("")}
+              aria-label="Clear input"
+              onClick={() => {
+                setQ("");
+                setUrlError(null);
+              }}
             >
               <svg
                 viewBox="0 0 24 24"
@@ -241,186 +273,187 @@ export function SearchYouTube({
             </button>
           ) : null}
         </div>
-        <div className="mt-2 flex items-stretch gap-2">
-          <div className="border-border bg-surface-elevated focus-within:border-primary focus-within:ring-primary/55 relative flex-1 rounded-xl border transition-[border-color,box-shadow] focus-within:ring-1">
-            <span className="pointer-events-none absolute inset-y-0 left-0 inline-flex items-center pl-3 text-muted-foreground sm:pl-3.5">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="size-4.5"
-                aria-hidden
-              >
-                <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
-                <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
-              </svg>
-            </span>
-            <input
-              type="url"
-              inputMode="url"
-              value={pasteUrl}
-              onChange={(e) => {
-                setPasteUrl(e.target.value);
-                if (pasteError) setPasteError(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void handlePasteAdd();
-                }
-              }}
-              placeholder="Paste any video URL…"
-              disabled={disabled || pasteAdding}
-              className={fieldClass}
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
-              enterKeyHint="go"
-              aria-label="Paste a video URL"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => void handlePasteAdd()}
-            disabled={disabled || pasteAdding || pasteUrl.trim().length === 0}
-            className={addBtnClass}
-            aria-label="Add pasted URL to queue"
-          >
-            {pasteAdding ? "Adding…" : "Add"}
-          </button>
-        </div>
-        {pasteError ? (
+        {urlError ? (
           <p className="text-destructive mt-1.5 text-xs font-medium" role="alert">
-            {pasteError}
+            {urlError}
           </p>
         ) : null}
       </div>
-      {error && (
-        <p className="text-destructive text-sm font-medium" role="alert">
-          {error}
-        </p>
-      )}
-      {items.length > 0 ? (
+      {parsedUrl ? (
         <ul
-          className="border-border relative min-h-0 flex-1 min-w-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-xl border px-3 sm:px-3.5"
-          aria-label="Search results"
-          onScroll={handleResultsScroll}
+          className="border-border relative min-h-0 min-w-0 w-full overflow-hidden rounded-xl border px-3 sm:px-3.5"
+          aria-label="URL to add"
         >
-          {items.map((it) => {
-          const inQueue =
-            (queuedVideoIds?.has(it.videoId) ?? false) ||
-            locallyAddedIds.has(it.videoId);
-          const isAdding = addingIds.has(it.videoId);
-          return (
-            <li
-              key={it.videoId}
-              className="border-border flex min-w-0 items-center gap-2.5 border-b py-2.5 last:border-b-0 sm:gap-3 sm:py-3"
-            >
-              {it.thumbUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={it.thumbUrl}
-                  alt=""
-                  width={96}
-                  height={54}
-                  className="h-12 w-24 shrink-0 rounded-md object-cover sm:h-[3.25rem] sm:w-[5.5rem]"
-                />
-              ) : (
-                <div className="bg-muted h-12 w-24 shrink-0 rounded-md sm:h-[3.25rem] sm:w-[5.5rem]" />
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="text-foreground min-w-0 break-words text-sm font-medium leading-snug">
-                  {it.title}
-                </p>
-                {it.publishedAt ? (
-                  <p className="text-muted-foreground mt-0.5 text-xs">
-                    {formatPublishedAt(it.publishedAt)}
-                  </p>
-                ) : null}
+          <li className="flex min-w-0 items-center gap-2.5 py-2.5 sm:gap-3 sm:py-3">
+            {parsedUrl.thumbUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={parsedUrl.thumbUrl}
+                alt=""
+                width={96}
+                height={54}
+                className="h-12 w-24 shrink-0 rounded-md object-cover sm:h-[3.25rem] sm:w-[5.5rem]"
+              />
+            ) : (
+              <div className="bg-muted text-muted-foreground flex h-12 w-24 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold uppercase tracking-wide sm:h-[3.25rem] sm:w-[5.5rem]">
+                {providerLabel(parsedUrl)}
               </div>
-              <button
-                type="button"
-                disabled={disabled || inQueue || isAdding}
-                onClick={() => {
-                  if (disabled || inQueue || isAdding) return;
-                  const id = it.videoId;
-                  setAddingIds((prev) => {
-                    const next = new Set(prev);
-                    next.add(id);
-                    return next;
-                  });
-                  void Promise.resolve(
-                    onAdd({
-                      provider: "youtube",
-                      videoId: it.videoId,
-                      title: it.title,
-                      thumbUrl: it.thumbUrl,
-                    })
-                  )
-                    .then((ok) => {
-                      if (ok) {
-                        setLocallyAddedIds((prev) => {
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="text-foreground min-w-0 break-words text-sm font-medium leading-snug">
+                {parsedUrl.title}
+              </p>
+              <p className="text-muted-foreground mt-0.5 text-xs">
+                {providerLabel(parsedUrl)}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={disabled || urlAdding || urlAlreadyQueued}
+              onClick={() => void handleUrlAdd()}
+              className={urlAlreadyQueued ? addedBtnClass : addBtnClass}
+              aria-label={
+                urlAlreadyQueued
+                  ? "Already in queue"
+                  : urlAdding
+                    ? "Adding"
+                    : "Add to queue"
+              }
+            >
+              {urlAlreadyQueued ? "Added" : urlAdding ? "Adding…" : "Add"}
+            </button>
+          </li>
+        </ul>
+      ) : (
+        <>
+          {error && (
+            <p className="text-destructive text-sm font-medium" role="alert">
+              {error}
+            </p>
+          )}
+          {items.length > 0 ? (
+            <ul
+              className="border-border relative min-h-0 flex-1 min-w-0 w-full overflow-y-auto overflow-x-hidden overscroll-y-contain rounded-xl border px-3 sm:px-3.5"
+              aria-label="Search results"
+              onScroll={handleResultsScroll}
+            >
+              {items.map((it) => {
+                const inQueue =
+                  (queuedVideoIds?.has(it.videoId) ?? false) ||
+                  locallyAddedIds.has(it.videoId);
+                const isAdding = addingIds.has(it.videoId);
+                return (
+                  <li
+                    key={it.videoId}
+                    className="border-border flex min-w-0 items-center gap-2.5 border-b py-2.5 last:border-b-0 sm:gap-3 sm:py-3"
+                  >
+                    {it.thumbUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={it.thumbUrl}
+                        alt=""
+                        width={96}
+                        height={54}
+                        className="h-12 w-24 shrink-0 rounded-md object-cover sm:h-[3.25rem] sm:w-[5.5rem]"
+                      />
+                    ) : (
+                      <div className="bg-muted h-12 w-24 shrink-0 rounded-md sm:h-[3.25rem] sm:w-[5.5rem]" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-foreground min-w-0 break-words text-sm font-medium leading-snug">
+                        {it.title}
+                      </p>
+                      {it.publishedAt ? (
+                        <p className="text-muted-foreground mt-0.5 text-xs">
+                          {formatPublishedAt(it.publishedAt)}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={disabled || inQueue || isAdding}
+                      onClick={() => {
+                        if (disabled || inQueue || isAdding) return;
+                        const id = it.videoId;
+                        setAddingIds((prev) => {
                           const next = new Set(prev);
                           next.add(id);
                           return next;
                         });
+                        void Promise.resolve(
+                          onAdd({
+                            provider: "youtube",
+                            videoId: it.videoId,
+                            title: it.title,
+                            thumbUrl: it.thumbUrl,
+                          })
+                        )
+                          .then((ok) => {
+                            if (ok) {
+                              setLocallyAddedIds((prev) => {
+                                const next = new Set(prev);
+                                next.add(id);
+                                return next;
+                              });
+                            }
+                          })
+                          .finally(() => {
+                            setAddingIds((prev) => {
+                              const next = new Set(prev);
+                              next.delete(id);
+                              return next;
+                            });
+                          });
+                      }}
+                      aria-label={
+                        inQueue
+                          ? "Already in queue"
+                          : isAdding
+                            ? "Adding"
+                            : "Add to queue"
                       }
-                    })
-                    .finally(() => {
-                      setAddingIds((prev) => {
-                        const next = new Set(prev);
-                        next.delete(id);
-                        return next;
-                      });
-                    });
-                }}
-                aria-label={
-                  inQueue ? "Already in queue" : isAdding ? "Adding" : "Add to queue"
-                }
-                className={inQueue ? addedBtnClass : addBtnClass}
-              >
-                {inQueue ? "Added" : isAdding ? "Adding…" : "Add"}
-              </button>
-            </li>
-          );
-          })}
-          {nextPageToken ? (
-            <li className="pointer-events-none sticky bottom-0 z-[1] -mx-3 mt-1.5 border-t border-border/60 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-3 py-1.5 text-center sm:-mx-3.5 sm:px-3.5">
-              <p className="text-muted-foreground text-xs">
-                {loadingMore ? "Loading more…" : "Scroll for more"}
-              </p>
-            </li>
+                      className={inQueue ? addedBtnClass : addBtnClass}
+                    >
+                      {inQueue ? "Added" : isAdding ? "Adding…" : "Add"}
+                    </button>
+                  </li>
+                );
+              })}
+              {nextPageToken ? (
+                <li className="pointer-events-none sticky bottom-0 z-[1] -mx-3 mt-1.5 border-t border-border/60 bg-gradient-to-t from-background/95 via-background/70 to-transparent px-3 py-1.5 text-center sm:-mx-3.5 sm:px-3.5">
+                  <p className="text-muted-foreground text-xs">
+                    {loadingMore ? "Loading more…" : "Scroll for more"}
+                  </p>
+                </li>
+              ) : null}
+            </ul>
           ) : null}
-        </ul>
-      ) : null}
-      {debounced.length < 2 && !loading && items.length === 0 ? (
-        <div className="border-border/60 bg-card/35 flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed px-4 text-center">
-          <p className="text-muted-foreground text-sm font-medium">
-            Summon a song and let the vibe gods decide.
-          </p>
-        </div>
-      ) : null}
-      {debounced.length >= 2 && !loading && items.length === 0 && !error ? (
-        <div className="border-border/60 bg-card/35 flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed px-4 text-center">
-          <p className="text-muted-foreground text-sm font-medium">
-            No results found.
-          </p>
-        </div>
-      ) : null}
-      {loading && items.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center">
-          <p
-            className="text-muted-foreground animate-pulse text-sm font-medium motion-reduce:animate-none"
-            aria-live="polite"
-          >
-            Searching…
-          </p>
-        </div>
-      ) : null}
+          {debounced.length < 2 && !loading && items.length === 0 ? (
+            <div className="border-border/60 bg-card/35 flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed px-4 text-center">
+              <p className="text-muted-foreground text-sm font-medium">
+                Summon a song and let the vibe gods decide.
+              </p>
+            </div>
+          ) : null}
+          {debounced.length >= 2 && !loading && items.length === 0 && !error ? (
+            <div className="border-border/60 bg-card/35 flex min-h-0 flex-1 items-center justify-center rounded-xl border border-dashed px-4 text-center">
+              <p className="text-muted-foreground text-sm font-medium">
+                No results found.
+              </p>
+            </div>
+          ) : null}
+          {loading && items.length === 0 ? (
+            <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center">
+              <p
+                className="text-muted-foreground animate-pulse text-sm font-medium motion-reduce:animate-none"
+                aria-live="polite"
+              >
+                Searching…
+              </p>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

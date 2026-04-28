@@ -12,6 +12,7 @@ import { effectivePlaybackSec } from "@/lib/playback-sync";
 export type YouTubeSyncPlayerHandle = {
   getCurrentTime: () => number | null;
   getDuration: () => number | null;
+  requestFullscreen?: () => void;
 };
 
 type Props = {
@@ -103,6 +104,7 @@ export const YouTubeSyncPlayer = forwardRef<
   ref
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YT.Player | null>(null);
   const onEndedRef = useRef(onHostVideoEnded);
   const onPlaybackScrubRef = useRef(onPlaybackScrub);
@@ -158,6 +160,15 @@ export const YouTubeSyncPlayer = forwardRef<
   useImperativeHandle(ref, () => ({
     getCurrentTime: () => playerRef.current?.getCurrentTime?.() ?? null,
     getDuration: () => playerRef.current?.getDuration?.() ?? null,
+    requestFullscreen: () => {
+      const el = surfaceRef.current;
+      if (!el) return;
+      try {
+        void el.requestFullscreen?.();
+      } catch {
+        /* ignore — user gesture may have expired */
+      }
+    },
   }));
 
   const triggerResyncUi = () => {
@@ -538,6 +549,7 @@ export const YouTubeSyncPlayer = forwardRef<
 
   return (
     <div
+      ref={surfaceRef}
       className={`ring-primary/25 relative w-full max-h-[min(42vh,22rem)] overflow-hidden rounded-xl bg-black shadow-md ring-2 min-[708px]:max-h-[min(72vh,48rem)] ${surfaceClassName ?? ""}`}
       style={{
         aspectRatio: "16 / 9",
