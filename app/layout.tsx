@@ -84,10 +84,10 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: dark)", color: "#1c1412" },
-    { media: "(prefers-color-scheme: light)", color: "#faf8f5" },
-  ],
+  // ThemeProvider drives the actual <meta name="theme-color"> at runtime so it
+  // tracks the user's manual choice, not just system prefers-color-scheme.
+  // Default value here is the light surface; it's overwritten on hydration.
+  themeColor: "#faf8f5",
 };
 
 export default function RootLayout({

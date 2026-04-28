@@ -8,6 +8,7 @@ import {
   saveDisplayAvatarDataUrl,
   saveDisplayProfileNamed,
 } from "@/lib/displayName";
+import { useTheme } from "@/components/ThemeProvider";
 
 type Props = {
   open: boolean;
@@ -48,6 +49,7 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
   const [name, setName] = useState("");
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const { resolved: themeResolved, setChoice: setThemeChoice } = useTheme();
 
   useEffect(() => {
     const d = dialogRef.current;
@@ -165,6 +167,63 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
           <p className="text-muted-foreground text-xs">
             Leave blank and we will generate a quirky alias.
           </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-semibold text-muted-foreground">
+            Theme
+          </span>
+          <div className="border-border bg-muted/30 inline-flex w-full rounded-xl border p-1">
+            <button
+              type="button"
+              onClick={() => setThemeChoice("light")}
+              aria-pressed={themeResolved === "light"}
+              className={`focus-visible:ring-ring inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                themeResolved === "light"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4"
+                aria-hidden
+              >
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
+              </svg>
+              Light
+            </button>
+            <button
+              type="button"
+              onClick={() => setThemeChoice("dark")}
+              aria-pressed={themeResolved === "dark"}
+              className={`focus-visible:ring-ring inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                themeResolved === "dark"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="size-4"
+                aria-hidden
+              >
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+              </svg>
+              Dark
+            </button>
+          </div>
         </div>
 
         <button

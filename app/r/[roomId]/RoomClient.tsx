@@ -54,7 +54,6 @@ import {
   shouldResetPartySessionForRoom,
 } from "@/lib/party-session";
 import { useRoomVisualViewport } from "@/hooks/useRoomVisualViewport";
-import { useTheme } from "@/components/ThemeProvider";
 
 type Props = {
   roomId: string;
@@ -292,7 +291,6 @@ function deriveAmbientFromImageData(
 export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [ready, setReady] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
-  const { resolved: themeResolved, toggle: toggleTheme } = useTheme();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
@@ -2300,50 +2298,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           <div className={headerToolbarClass}>
             <button
               type="button"
-              onClick={toggleTheme}
-              className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
-              title={
-                themeResolved === "dark"
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
-              aria-label={
-                themeResolved === "dark"
-                  ? "Switch to light mode"
-                  : "Switch to dark mode"
-              }
-            >
-              {themeResolved === "dark" ? (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="size-4.5"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4" />
-                </svg>
-              ) : (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="size-4.5"
-                  aria-hidden
-                >
-                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-                </svg>
-              )}
-            </button>
-            <button
-              type="button"
               onClick={openGuestInvite}
               className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
               title={
@@ -2363,10 +2317,11 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 className="size-4.5"
                 aria-hidden
               >
-                <circle cx="9" cy="8" r="4" />
-                <path d="M2 21a7 7 0 0 1 14 0" />
-                <path d="M19 8v6" />
-                <path d="M22 11h-6" />
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <path d="m8.6 13.5 6.8 4" />
+                <path d="m15.4 6.5-6.8 4" />
               </svg>
             </button>
             {isHost ? (

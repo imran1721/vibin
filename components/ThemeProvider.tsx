@@ -31,6 +31,28 @@ function resolve(choice: ThemeChoice): ResolvedTheme {
   return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+const THEME_COLOR_LIGHT = "#faf8f5";
+const THEME_COLOR_DARK = "#1c1412";
+
+function applyMetaThemeColor(resolved: ResolvedTheme) {
+  if (typeof document === "undefined") return;
+  const value = resolved === "dark" ? THEME_COLOR_DARK : THEME_COLOR_LIGHT;
+  // Drop any prefers-color-scheme variants Next.js may have emitted; we drive
+  // the OS status-bar color from the resolved app theme instead.
+  document
+    .querySelectorAll('meta[name="theme-color"][media]')
+    .forEach((el) => el.parentElement?.removeChild(el));
+  let tag = document.querySelector(
+    'meta[name="theme-color"]:not([media])'
+  ) as HTMLMetaElement | null;
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.name = "theme-color";
+    document.head.appendChild(tag);
+  }
+  tag.content = value;
+}
+
 function applyToDocument(choice: ThemeChoice) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -47,23 +69,31 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const c = readStoredChoice();
+    const r = resolve(c);
     setChoiceState(c);
-    setResolved(resolve(c));
+    setResolved(r);
     applyToDocument(c);
+    applyMetaThemeColor(r);
   }, []);
 
   useEffect(() => {
     if (choice !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => setResolved(mq.matches ? "dark" : "light");
+    const onChange = () => {
+      const r: ResolvedTheme = mq.matches ? "dark" : "light";
+      setResolved(r);
+      applyMetaThemeColor(r);
+    };
     mq.addEventListener?.("change", onChange);
     return () => mq.removeEventListener?.("change", onChange);
   }, [choice]);
 
   const setChoice = (next: ThemeChoice) => {
+    const r = resolve(next);
     setChoiceState(next);
-    setResolved(resolve(next));
+    setResolved(r);
     applyToDocument(next);
+    applyMetaThemeColor(r);
     try {
       if (next === "system") window.localStorage.removeItem(STORAGE_KEY);
       else window.localStorage.setItem(STORAGE_KEY, next);
