@@ -275,6 +275,7 @@ body:has(aside.vibin-rail) .vibin-page-bg {
 .vibin-eq-mark .vibin-eq-bar-1 { animation-delay: 0ms; }
 .vibin-eq-mark .vibin-eq-bar-2 { animation-delay: 140ms; }
 .vibin-eq-mark .vibin-eq-bar-3 { animation-delay: 280ms; }
+.vibin-eq-mark .vibin-eq-bar-4 { animation-delay: 420ms; }
 @media (prefers-reduced-motion: reduce) {
   .vibin-eq-mark .vibin-eq-bar { animation: none; transform: scaleY(0.82); opacity: 0.95; }
 }

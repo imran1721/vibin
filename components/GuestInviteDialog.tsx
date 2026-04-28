@@ -13,9 +13,9 @@ const iconBtn =
   "text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute right-3 top-3 inline-flex size-10 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 // Vibin logo inlined as a data URL so SVG-in-SVG (`<image href>`) renders
-// reliably across browsers. Sourced from public/logo.svg with explicit
-// width/height so it sizes correctly when used as a raster reference.
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#1c1412"/><rect x="7" y="18" width="4" height="10" rx="2" fill="#e8945c"/><rect x="14" y="11" width="4" height="17" rx="2" fill="#e8945c"/><rect x="21" y="14" width="4" height="14" rx="2" fill="#5eb8c4"/></svg>`;
+// reliably across browsers. Four-bar mark on a rounded tile — the tile keeps
+// the stamp visible against the QR card.
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"><rect width="32" height="32" rx="8" fill="#1c1412"/><rect x="5" y="15" width="4" height="10" rx="2" fill="#e8945c"/><rect x="11" y="7" width="4" height="18" rx="2" fill="#e8945c"/><rect x="17" y="13" width="4" height="12" rx="2" fill="#e8945c"/><rect x="23" y="9" width="4" height="16" rx="2" fill="#5eb8c4"/></svg>`;
 const LOGO_DATA_URL = `data:image/svg+xml;utf8,${encodeURIComponent(LOGO_SVG)}`;
 
 type Props = {

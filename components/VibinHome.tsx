@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { ensureAnonymousSession } from "@/lib/auth";
 import {
-  EqMark,
   HeroScene,
   NowVibingTicker,
   Sparkles,
@@ -138,14 +137,13 @@ export function VibinHome() {
         </div>
       ) : null}
 
-      {/* Lockup row — logo + vibin.click + eq mark */}
+      {/* Lockup row — logo + vibin.click */}
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <VibinEqualizerMark className="size-9" />
           <span className="font-display text-accent text-[1.05rem] font-extrabold tracking-tight">
             vibin.click
           </span>
-          <EqMark size={16} />
         </div>
       </div>
 
