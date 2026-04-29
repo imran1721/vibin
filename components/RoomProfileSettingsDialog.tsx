@@ -9,11 +9,20 @@ import {
   saveDisplayProfileNamed,
 } from "@/lib/displayName";
 import { useTheme } from "@/components/ThemeProvider";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+
+const TITLE_MAX = 80;
 
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
+  isHost?: boolean;
+  roomId?: string;
+  hostToken?: string;
+  roomTitle?: string | null;
+  roomIsPublic?: boolean;
+  onRoomSettingsSaved?: (next: { title: string | null; isPublic: boolean }) => void;
 };
 
 async function resizeImageToDataUrl(file: File): Promise<string> {
@@ -42,7 +51,17 @@ async function resizeImageToDataUrl(file: File): Promise<string> {
   }
 }
 
-export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props) {
+export function RoomProfileSettingsDialog({
+  open,
+  onOpenChange,
+  onSaved,
+  isHost = false,
+  roomId,
+  hostToken,
+  roomTitle: initialRoomTitle,
+  roomIsPublic: initialRoomIsPublic,
+  onRoomSettingsSaved,
+}: Props) {
   const titleId = useId();
   const descId = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -50,6 +69,10 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
   const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const { resolved: themeResolved, setChoice: setThemeChoice } = useTheme();
+  const [roomTitleDraft, setRoomTitleDraft] = useState(initialRoomTitle ?? "");
+  const [roomPublicDraft, setRoomPublicDraft] = useState(initialRoomIsPublic ?? false);
+  const [roomSaveBusy, setRoomSaveBusy] = useState(false);
+  const [roomSaveError, setRoomSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     const d = dialogRef.current;
@@ -58,6 +81,9 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
       const currentName = getQueueAttributionLabel() ?? "";
       setName(currentName);
       setPhotoDataUrl(getDisplayAvatarDataUrl());
+      setRoomTitleDraft(initialRoomTitle ?? "");
+      setRoomPublicDraft(initialRoomIsPublic ?? false);
+      setRoomSaveError(null);
       if (!d.open) d.showModal();
     } else if (d.open) {
       d.close();
@@ -69,10 +95,61 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
     return t.length > 0 ? t[0]!.toUpperCase() : "♪";
   }, [name]);
 
-  const onSave = () => {
+  const onSave = async () => {
     const nextName = name.trim() || createQuirkyAlias();
     saveDisplayProfileNamed(nextName);
     saveDisplayAvatarDataUrl(photoDataUrl);
+
+    if (isHost && roomId && hostToken) {
+      const trimmedTitle = roomTitleDraft.trim();
+      const nextTitle = trimmedTitle.length > 0 ? trimmedTitle : null;
+      const titleChanged = nextTitle !== (initialRoomTitle ?? null);
+      const visChanged = roomPublicDraft !== (initialRoomIsPublic ?? false);
+
+      if (titleChanged || visChanged) {
+        setRoomSaveBusy(true);
+        setRoomSaveError(null);
+        try {
+          const supabase = getSupabaseBrowserClient();
+          if (titleChanged) {
+            if (!nextTitle && (initialRoomIsPublic ?? false)) {
+              const { error } = await supabase.rpc("set_room_visibility", {
+                p_room_id: roomId,
+                p_host_token: hostToken,
+                p_is_public: false,
+              });
+              if (error) throw error;
+            }
+            const { error } = await supabase.rpc("set_room_title", {
+              p_room_id: roomId,
+              p_host_token: hostToken,
+              p_title: nextTitle,
+            });
+            if (error) throw error;
+          }
+          if (visChanged) {
+            if (roomPublicDraft && !nextTitle)
+              throw new Error("Add a title before making the room public.");
+            const { error } = await supabase.rpc("set_room_visibility", {
+              p_room_id: roomId,
+              p_host_token: hostToken,
+              p_is_public: roomPublicDraft,
+            });
+            if (error) throw error;
+          }
+          onRoomSettingsSaved?.({ title: nextTitle, isPublic: roomPublicDraft });
+        } catch (e) {
+          setRoomSaveError(
+            e instanceof Error ? e.message : "Could not save room settings."
+          );
+          setRoomSaveBusy(false);
+          return;
+        } finally {
+          setRoomSaveBusy(false);
+        }
+      }
+    }
+
     onOpenChange(false);
     onSaved();
   };
@@ -91,14 +168,14 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
         if (e.target === dialogRef.current) onOpenChange(false);
       }}
     >
-      <div className="flex flex-col gap-4 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))]">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex max-h-[min(85dvh,38rem)] flex-col">
+        <div className="flex shrink-0 items-start justify-between gap-3 px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-3">
           <div>
             <h2 id={titleId} className="font-display text-lg font-bold leading-tight">
-              Profile settings
+              Settings
             </h2>
             <p id={descId} className="text-muted-foreground mt-1.5 text-sm leading-relaxed">
-              Update your name and photo for this device.
+              {isHost ? "Room and profile settings." : "Update your name and photo for this device."}
             </p>
           </div>
           <button
@@ -112,6 +189,72 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
             </svg>
           </button>
         </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5"
+        >
+
+        {isHost ? (
+          <>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="room-title" className="text-xs font-semibold text-muted-foreground">
+                Room title
+              </label>
+              <input
+                id="room-title"
+                type="text"
+                maxLength={TITLE_MAX}
+                placeholder="e.g. Friday night chill"
+                value={roomTitleDraft}
+                onChange={(e) => setRoomTitleDraft(e.target.value)}
+                className="border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              />
+            </div>
+
+            <fieldset className="border-border/70 bg-card/30 flex flex-col gap-2 rounded-xl border p-3">
+              <legend className="px-1 text-xs font-semibold text-muted-foreground">Who can join</legend>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg p-2 hover:bg-muted/50">
+                <input
+                  type="radio"
+                  name="visibility"
+                  checked={!roomPublicDraft}
+                  onChange={() => setRoomPublicDraft(false)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Private</p>
+                  <p className="text-muted-foreground text-xs leading-snug">Only people with the link or QR code can join.</p>
+                </div>
+              </label>
+              <label
+                className={`flex items-start gap-3 rounded-lg p-2 ${roomTitleDraft.trim().length > 0 ? "cursor-pointer hover:bg-muted/50" : "cursor-not-allowed opacity-60"}`}
+              >
+                <input
+                  type="radio"
+                  name="visibility"
+                  checked={roomPublicDraft}
+                  disabled={roomTitleDraft.trim().length === 0}
+                  onChange={() => setRoomPublicDraft(true)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-semibold">Public</p>
+                  <p className="text-muted-foreground text-xs leading-snug">
+                    Listed on the explore page so anyone can find and join.
+                    {roomTitleDraft.trim().length > 0 ? null : " Add a title above to enable."}
+                  </p>
+                </div>
+              </label>
+            </fieldset>
+
+            {roomSaveError ? (
+              <div className="border-destructive/35 bg-destructive/10 rounded-xl border px-3 py-2" role="alert">
+                <p className="text-destructive text-xs font-medium">{roomSaveError}</p>
+              </div>
+            ) : null}
+
+            <div className="bg-border/50 h-px" />
+          </>
+        ) : null}
 
         <div className="flex items-center gap-3">
           <div className="border-border bg-muted relative inline-flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full border">
@@ -226,13 +369,18 @@ export function RoomProfileSettingsDialog({ open, onOpenChange, onSaved }: Props
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onSave}
-          className="bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          Save changes
-        </button>
+        </div>
+
+        <div className="shrink-0 px-5 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => void onSave()}
+            disabled={roomSaveBusy}
+            className="bg-primary text-primary-foreground hover:brightness-105 focus-visible:ring-ring inline-flex min-h-11 w-full items-center justify-center rounded-xl px-4 py-2 text-sm font-bold transition-[filter] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-55"
+          >
+            {roomSaveBusy ? "Saving…" : "Save changes"}
+          </button>
+        </div>
       </div>
     </dialog>
   );

@@ -5,9 +5,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { VibinEqualizerMark } from "@/components/VibinEqualizerMark";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useTheme } from "@/components/ThemeProvider";
-import { readStoredHostRoom } from "@/lib/party-session";
+import { readStoredHostRoom, setStoredHostRoom } from "@/lib/party-session";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { ensureAnonymousSession } from "@/lib/auth";
 
-type NavId = "home" | "explore" | "create" | "settings" | "me";
+type NavId = "home" | "explore" | "create" | "me";
 
 type RoomChip = {
   id: string;
@@ -62,12 +64,6 @@ const railNavIcons: Record<NavId, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 8v8M8 12h8" />
-    </>
-  ),
-  settings: (
-    <>
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
     </>
   ),
   me: (
@@ -230,7 +226,6 @@ function LeftRail({
 
       <div className="flex flex-col items-center gap-1.5">
         <ThemeToggle variant="rail" />
-        <RailIcon id="settings" label="Settings" active={false} onClick={() => { /* no-op placeholder */ }} />
         <button
           type="button"
           aria-label="Profile"
@@ -404,6 +399,8 @@ export function AppShell({
     return () => window.cancelAnimationFrame(frame);
   }, [rooms, pathname]);
 
+  const [creating, setCreating] = useState(false);
+
   const onNavigate = (id: NavId) => {
     if (id === "home") router.push("/");
     else if (id === "explore") router.push("/explore");
@@ -412,7 +409,28 @@ export function AppShell({
       if (stored) {
         router.push(`/r/${stored.roomId}?h=${encodeURIComponent(stored.hostToken)}`);
       } else {
-        router.push("/");
+        if (creating) return;
+        setCreating(true);
+        void (async () => {
+          try {
+            const supabase = getSupabaseBrowserClient();
+            await ensureAnonymousSession(supabase);
+            const { data, error } = await supabase.rpc("create_room", {
+              p_title: null,
+            });
+            if (error) throw error;
+            const row = data as { id?: string; host_token?: string } | null;
+            if (!row?.id || !row?.host_token) throw new Error("No room");
+            setStoredHostRoom(row.id, row.host_token);
+            router.push(
+              `/r/${row.id}?h=${encodeURIComponent(row.host_token)}&new=1`
+            );
+          } catch (e) {
+            console.error("Failed to create room:", e);
+          } finally {
+            setCreating(false);
+          }
+        })();
       }
     } else if (id === "me") {
       router.push("/");

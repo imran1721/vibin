@@ -91,40 +91,30 @@ export function GuestInviteDialog({ open, onOpenChange, url }: Props) {
         if (e.target === dialogRef.current) onOpenChange(false);
       }}
     >
-      <div className="relative">
-        <button
-          type="button"
-          className={iconBtn}
-          onClick={() => onOpenChange(false)}
-          aria-label="Close"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="size-5"
-            aria-hidden
+      <div className="flex max-h-[min(92dvh,40rem)] flex-col">
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-2">
+          <h2
+            id="guest-invite-title"
+            className="font-display text-foreground text-lg font-bold leading-tight"
           >
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
+            Invite guests
+          </h2>
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground inline-flex size-9 shrink-0 items-center justify-center rounded-lg"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="size-4.5" aria-hidden>
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
 
         <div
-          className="flex max-h-[min(92dvh,40rem)] flex-col gap-3 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pl-5 pr-5 pt-[max(3rem,env(safe-area-inset-top))]"
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
           onClick={(e) => e.stopPropagation()}
         >
-          <div>
-            <h2
-              id="guest-invite-title"
-              className="font-display text-foreground pr-10 text-lg font-bold leading-tight"
-            >
-              Invite guests
-            </h2>
-          </div>
 
           <div className="flex justify-center">
             <div className="bg-white rounded-2xl p-3 shadow-sm ring-1 ring-black/5">

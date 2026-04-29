@@ -43,7 +43,6 @@ import {
   type GuestListEntry,
 } from "@/components/GuestListDialog";
 import { RoomProfileSettingsDialog } from "@/components/RoomProfileSettingsDialog";
-import { RoomSettingsDialog } from "@/components/RoomSettingsDialog";
 import { AvatarLightbox } from "@/components/AvatarLightbox";
 import {
   clearPartyRoomState,
@@ -71,7 +70,7 @@ const headerToolbarClass =
 const headerToolbarBtnClass =
   "text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 shrink-0 items-center justify-center rounded-[0.65rem] px-3.5 py-2 text-xs font-semibold transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:px-4 sm:text-sm";
 
-function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlists" | "chat"; active: boolean }) {
+function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlists"; active: boolean }) {
   const cls = active ? "size-[1.05rem]" : "size-[1.2rem] text-muted-foreground";
   if (name === "now") {
     return (
@@ -98,13 +97,6 @@ function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlis
       </svg>
     );
   }
-  if (name === "chat") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
-        <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
-      </svg>
-    );
-  }
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={cls} aria-hidden>
       <path d="M9 18V5l10-2v13" />
@@ -117,7 +109,6 @@ function TabIcon({ name, active }: { name: "now" | "queue" | "search" | "playlis
 const PANEL_TABS = [
   { key: "now", label: "Now Playing", icon: "now" },
   { key: "search", label: "Search", icon: "search" },
-  { key: "chat", label: "Chat", icon: "chat" },
   { key: "playlists", label: "Playlists", icon: "playlists" },
 ] as const;
 
@@ -307,6 +298,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   const [queueJumpBusy, setQueueJumpBusy] = useState(false);
   const [clearQueueBusy, setClearQueueBusy] = useState(false);
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [leaveConfirmOpen, setLeaveConfirmOpen] = useState(false);
   /** Guests only: load/sync YouTube on this device when true (opt-in). */
   const [guestShowSyncedVideo, setGuestShowSyncedVideo] = useState(false);
   const [guestCount, setGuestCount] = useState(0);
@@ -359,7 +351,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
   >({});
   const [chatToastMessage, setChatToastMessage] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [roomSettingsOpen, setRoomSettingsOpen] = useState(false);
   const [roomTitle, setRoomTitle] = useState<string | null>(null);
   const [roomIsPublic, setRoomIsPublic] = useState(false);
   const [enlargedAvatar, setEnlargedAvatar] = useState<{
@@ -2254,12 +2245,18 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
     >
       <header className="border-border/50 sticky top-0 z-40 w-full shrink-0 border-b pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 backdrop-blur-md">
         <div className="mx-auto flex w-full max-w-[min(100%,96rem)] items-center justify-between gap-3 px-[clamp(1rem,4vw,1.5rem)] sm:gap-4">
-          <div className="flex min-w-0 flex-1 items-center pr-2">
+          <button
+            type="button"
+            onClick={() => setLeaveConfirmOpen(true)}
+            className="flex min-w-0 flex-1 cursor-pointer items-center border-0 bg-transparent pr-2 text-left"
+            title="Exit room"
+          >
             {isHost ? (
               <>
                 <h1 className="sr-only">vibin.click — you are the host</h1>
                 <AppBrandLockup
                   className="min-w-0"
+                  markClassName="size-7 shrink-0 sm:size-8"
                   hideTagline
                   subtitle={roomTitle}
                   titleRowSuffix={
@@ -2267,11 +2264,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                       <span className="bg-primary/12 text-primary border-primary/20 inline-flex shrink-0 items-center justify-center rounded-full border px-1.5 py-0.5 text-[0.6rem] font-semibold uppercase leading-none tracking-wider">
                         Host
                       </span>
-                      <VisibilityPill
-                        isPublic={roomIsPublic}
-                        canEdit
-                        onClick={() => setRoomSettingsOpen(true)}
-                      />
+                      <VisibilityPill isPublic={roomIsPublic} canEdit={false} />
                     </>
                   }
                 />
@@ -2281,6 +2274,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <h1 className="sr-only">vibin.click — you are a guest</h1>
                 <AppBrandLockup
                   className="min-w-0"
+                  markClassName="size-7 shrink-0 sm:size-8"
                   hideTagline
                   subtitle={roomTitle}
                   titleRowSuffix={
@@ -2294,7 +2288,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 />
               </>
             )}
-          </div>
+          </button>
           <div className={headerToolbarClass}>
             <button
               type="button"
@@ -2324,61 +2318,12 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 <path d="m15.4 6.5-6.8 4" />
               </svg>
             </button>
-            {isHost ? (
-              <button
-                type="button"
-                onClick={() => setRoomSettingsOpen(true)}
-                className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
-                title="Room settings (title and visibility)"
-                aria-label="Open room settings"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="size-4.5"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.88l.03.03a2 2 0 0 1-2.83 2.83l-.03-.03a1.7 1.7 0 0 0-1.88-.33 1.7 1.7 0 0 0-1.02 1.56V21a2 2 0 0 1-4 0v-.04a1.7 1.7 0 0 0-1.02-1.56 1.7 1.7 0 0 0-1.88.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.02H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.33-1.88l-.03-.03a2 2 0 0 1 2.83-2.83l.03.03a1.7 1.7 0 0 0 1.88.33H9a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.04a1.7 1.7 0 0 0 1.02 1.56 1.7 1.7 0 0 0 1.88-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.88V9c0 .68.4 1.3 1.02 1.56H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z" />
-                </svg>
-              </button>
-            ) : null}
             <button
               type="button"
               onClick={() => setSettingsOpen(true)}
               className="text-foreground hover:bg-muted/80 focus-visible:ring-ring inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-[0.65rem] px-2.5 py-2 transition-colors focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:min-h-10 sm:min-w-10"
-              title="Profile settings"
-              aria-label="Open profile settings"
-            >
-              {profilePhotoDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={profilePhotoDataUrl}
-                  alt="Your profile"
-                  className="size-6 rounded-full object-cover sm:size-7"
-                />
-              ) : (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="size-4.5"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="8" r="4" />
-                  <path d="M4 21a8 8 0 0 1 16 0" />
-                </svg>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={leaveToHome}
-              className={headerToolbarBtnClass}
-              aria-label="Exit room"
-              title="Exit room"
+              title="Settings"
+              aria-label="Open settings"
             >
               <svg
                 viewBox="0 0 24 24"
@@ -2388,9 +2333,8 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                 className="size-4.5"
                 aria-hidden
               >
-                <path d="M9 6H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4" />
-                <path d="M16 17l5-5-5-5" />
-                <path d="M21 12H9" />
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.88l.03.03a2 2 0 0 1-2.83 2.83l-.03-.03a1.7 1.7 0 0 0-1.88-.33 1.7 1.7 0 0 0-1.02 1.56V21a2 2 0 0 1-4 0v-.04a1.7 1.7 0 0 0-1.02-1.56 1.7 1.7 0 0 0-1.88.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.02H3a2 2 0 0 1 0-4h.04A1.7 1.7 0 0 0 4.6 8.96a1.7 1.7 0 0 0-.33-1.88l-.03-.03a2 2 0 0 1 2.83-2.83l.03.03a1.7 1.7 0 0 0 1.88.33H9a1.7 1.7 0 0 0 1-1.54V3a2 2 0 0 1 4 0v.04a1.7 1.7 0 0 0 1.02 1.56 1.7 1.7 0 0 0 1.88-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.88V9c0 .68.4 1.3 1.02 1.56H21a2 2 0 0 1 0 4h-.04A1.7 1.7 0 0 0 19.4 15Z" />
               </svg>
             </button>
           </div>
@@ -2492,21 +2436,17 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           </div>
           <div className="order-2 flex min-h-0 w-full min-w-0 flex-1 flex-col min-[708px]:order-1 min-[708px]:min-h-0 min-[708px]:w-[min(22rem,36vw)] min-[708px]:max-w-sm min-[708px]:shrink-0 min-[708px]:rounded-2xl min-[708px]:border min-[708px]:border-border/70 min-[708px]:bg-card/35 min-[708px]:p-3 xl:w-96 xl:max-w-md">
             <nav
-              className="mb-3 hidden grid-cols-2 gap-1.5 min-[708px]:grid"
+              className="mb-3 hidden grid-cols-3 gap-1.5 min-[708px]:grid"
               aria-label="Room panels"
             >
               {PANEL_TABS.map((tab) => {
-                const active = tab.key === "chat" ? chatOverlayOpen : activePanel === tab.key;
+                const active = activePanel === tab.key;
                 return (
                   <button
                     key={tab.key}
                     type="button"
                     onClick={() => {
-                      if (tab.key === "chat") {
-                        setChatOverlayOpen((v) => !v);
-                      } else {
-                        setActivePanel(tab.key);
-                      }
+                      setActivePanel(tab.key);
                     }}
                     className={`inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all duration-200 sm:min-h-10 sm:gap-2 sm:px-2.5 sm:text-xs ${active ? "bg-primary text-primary-foreground shadow-sm shadow-primary/30" : "text-muted-foreground hover:bg-muted/60"}`}
                     aria-pressed={active}
@@ -2515,11 +2455,6 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
                   >
                     <span className="relative inline-flex shrink-0">
                       <TabIcon name={tab.icon} active={active} />
-                      {tab.key === "chat" && unreadChatCount > 0 ? (
-                        <span className="bg-primary text-primary-foreground absolute -right-1.5 -top-1.5 inline-flex min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-4">
-                          {unreadChatCount > 99 ? "99+" : unreadChatCount}
-                        </span>
-                      ) : null}
                     </span>
                     <span className="min-w-0 truncate tracking-tight">{tab.label}</span>
                   </button>
@@ -2759,7 +2694,7 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         aria-hidden={keyboardOpen}
       >
         <div className="pointer-events-auto mx-auto flex w-full max-w-md items-center justify-between rounded-2xl border border-border/75 bg-background/92 p-1.5 shadow-[0_10px_28px_rgba(0,0,0,0.35)] backdrop-blur-md">
-          {PANEL_TABS.filter((t) => t.key !== "chat").map((tab) => {
+          {PANEL_TABS.map((tab) => {
             const active = activePanel === tab.key;
             return (
               <button
@@ -2925,6 +2860,15 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
           destructive
         />
       ) : null}
+      <ConfirmDialog
+        open={leaveConfirmOpen}
+        onOpenChange={setLeaveConfirmOpen}
+        title="Leave this room?"
+        description="You can rejoin later with the same link."
+        confirmLabel="Leave"
+        onConfirm={leaveToHome}
+        destructive
+      />
       <GuestInviteDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
@@ -2944,26 +2888,21 @@ export function RoomClient({ roomId, hostToken, justCreated = false }: Props) {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSaved={handleProfileSaved}
+        isHost={isHost}
+        roomId={roomId}
+        hostToken={hostTokenForRpc}
+        roomTitle={roomTitle}
+        roomIsPublic={roomIsPublic}
+        onRoomSettingsSaved={(next) => {
+          setRoomTitle(next.title);
+          setRoomIsPublic(next.isPublic);
+        }}
       />
       {enlargedAvatar ? (
         <AvatarLightbox
           src={enlargedAvatar.src}
           label={enlargedAvatar.label}
           onClose={() => setEnlargedAvatar(null)}
-        />
-      ) : null}
-      {isHost && hostTokenForRpc ? (
-        <RoomSettingsDialog
-          open={roomSettingsOpen}
-          onOpenChange={setRoomSettingsOpen}
-          roomId={roomId}
-          hostToken={hostTokenForRpc}
-          initialTitle={roomTitle}
-          initialIsPublic={roomIsPublic}
-          onSaved={(next) => {
-            setRoomTitle(next.title);
-            setRoomIsPublic(next.isPublic);
-          }}
         />
       ) : null}
       {readyCheck ? (
